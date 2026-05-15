@@ -1,0 +1,2350 @@
+// ==========================================
+// BLOQUEAR LETRAS NOS CAMPOS DE KM
+// ==========================================
+['vtr-km-inicial', 'fechar-km-final', 'edit-km'].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('keydown', e => {
+        // Permite: backspace, delete, tab, enter, setas, home, end
+        const permitidos = ['Backspace','Delete','Tab','Enter','ArrowLeft','ArrowRight','Home','End'];
+        if (permitidos.includes(e.key)) return;
+        // Bloqueia qualquer coisa que não seja número
+        if (!/^\d$/.test(e.key)) e.preventDefault();
+    });
+    el.addEventListener('input', () => {
+        el.value = el.value.replace(/\D/g, '');
+    });
+});
+
+// ==========================================
+// TOGGLE DOS FORMULÁRIOS (mobile friendly)
+// ==========================================
+window.toggleFormViatura = function () {
+    const form = document.getElementById('vtr-form-fields');
+    const btn  = document.getElementById('btn-toggle-form-vtr');
+    const aberto = !form.classList.contains('hidden');
+    if (aberto) {
+        form.classList.add('hidden');
+        btn.textContent = '+ ABRIR KM';
+        btn.classList.remove('ativo');
+    } else {
+        form.classList.remove('hidden');
+        btn.textContent = '✕ CANCELAR';
+        btn.classList.add('ativo');
+    }
+};
+
+window.toggleFormOcorrencia = function () {
+    const form = document.getElementById('oc-form-fields');
+    const btn  = document.getElementById('btn-toggle-form-oc');
+    const aberto = !form.classList.contains('hidden');
+    if (aberto) {
+        form.classList.add('hidden');
+        btn.textContent = '＋ NOVA OCORRÊNCIA';
+        btn.classList.remove('ativo');
+    } else {
+        form.classList.remove('hidden');
+        btn.textContent = '✕ CANCELAR';
+        btn.classList.add('ativo');
+    }
+};
+
+// ==========================================
+// 1. CONFIGURAÇÃO SUPABASE
+// ==========================================
+const SUPABASE_URL = 'https://ssuigqzgbdbkrhylvyio.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_pSwYqSArA9Uhy2OP9TG1qQ_KoXSBeLQ';
+const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// ==========================================
+// 2. REFERÊNCIAS DO HTML
+// ==========================================
+const telaLogin      = document.getElementById('tela-login');
+const telaInicial    = document.getElementById('tela-inicial');
+const telaViatura    = document.getElementById('tela-conversa-viatura');
+const telaOcorrencia = document.getElementById('tela-conversa-ocorrencia');
+const telaDetalhe    = document.getElementById('tela-detalhe-ocorrencia');
+
+const btnEntrarViatura    = document.getElementById('btn-entrar-viatura');
+const btnEntrarOcorrencia = document.getElementById('btn-entrar-ocorrencia');
+
+// Viatura
+const vtrSelectVtr      = document.getElementById('vtr-select-vtr');
+const vtrSelectCondutor = document.getElementById('vtr-select-condutor');
+const vtrSelectApoio    = document.getElementById('vtr-select-apoio');
+const vtrKmInicial      = document.getElementById('vtr-km-inicial');
+const vtrHoraInicial    = document.getElementById('vtr-hora-inicial');
+const btnAbrirKm        = document.getElementById('btn-abrir-km');
+const containerMensagensVtr = document.getElementById('container-msgs-viatura');
+
+// Ocorrência (formulário)
+const ocSelectCodigo     = document.getElementById('oc-select-codigo');
+const ocSelectSetor      = document.getElementById('oc-select-setor');
+const ocSelectVtr        = document.getElementById('oc-select-vtr');
+const ocSelectCondutor   = document.getElementById('oc-select-condutor');
+const ocSelectApoio      = document.getElementById('oc-select-apoio');
+const ocData             = document.getElementById('oc-data');
+const ocHora             = document.getElementById('oc-hora');
+const btnAbrirOcorrencia = document.getElementById('btn-abrir-ocorrencia');
+const containerMensagensOc = document.getElementById('container-msgs-ocorrencia');
+
+// Login
+const inputEmail   = document.getElementById('login-email');
+const inputSenha   = document.getElementById('login-senha');
+const btnEntrar    = document.getElementById('btn-entrar');
+
+// Variáveis globais
+let idTurnoAtual      = null;
+let idSendoProcessado = null;
+let agenteLogado      = null;
+let ocorrenciaAtual   = null; // objeto da ocorrência aberta no detalhe
+let fotosSelecionadas = [];    // array de {file, previewUrl}
+
+function verificaVinculoAgente(agente, condutor, apoio) {
+    if (!agente) return true;
+    const ag = agente.toUpperCase();
+    const c  = (condutor || '').trim().toUpperCase();
+    const ap = (apoio || '').trim().toUpperCase();
+    
+    const matchCondutor = c.length > 0 && (c.includes(ag) || ag.includes(c));
+    const matchApoio    = ap.length > 0 && (ap.includes(ag) || ag.includes(ap));
+    
+    return matchCondutor || matchApoio;
+}
+
+function selecionarAgenteNoSelect(selectElement, agente) {
+    if (!selectElement || !agente) return;
+    const ag = agente.toUpperCase();
+    for (let i = 0; i < selectElement.options.length; i++) {
+        const val = selectElement.options[i].value.toUpperCase();
+        if (val && (val.includes(ag) || ag.includes(val))) {
+            selectElement.value = selectElement.options[i].value;
+            return;
+        }
+    }
+}
+// Função para pegar a data local correta no formato YYYY-MM-DD
+function obterDataLocal() {
+    const data = new Date();
+    const ano = data.getFullYear();
+    const mes = String(data.getMonth() + 1).padStart(2, '0');
+    const dia = String(data.getDate()).padStart(2, '0');
+    return `${ano}-${mes}-${dia}`;
+}
+
+
+// ==========================================
+// 3. NOTIFICAÇÕES INLINE
+// ==========================================
+function mostrarNotificacao(idElemento, mensagem, sucesso = false) {
+    const el = document.getElementById(idElemento);
+    if (!el) return;
+    el.textContent = mensagem;
+    el.className = 'erro-inline ' + (sucesso ? 'sucesso-inline' : '');
+    el.classList.remove('hidden');
+    clearTimeout(el._timeout);
+    el._timeout = setTimeout(() => el.classList.add('hidden'), 4000);
+}
+
+
+// ==========================================
+// 4. NAVEGAÇÃO ENTRE TELAS
+// ==========================================
+function ocultarTodasTelas() {
+    [telaLogin, telaInicial, telaViatura, telaOcorrencia, telaDetalhe]
+        .forEach(t => t && t.classList.add('hidden'));
+}
+
+btnEntrarViatura.addEventListener('click', () => {
+    ocultarTodasTelas();
+    telaViatura.classList.remove('hidden');
+    carregarHistoricoViatura();
+    // Preenche data e hora atual automaticamente
+    const agora = new Date();
+    document.getElementById('vtr-data-inicial').value = obterDataLocal();
+    vtrHoraInicial.value = agora.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    if (agenteLogado) {
+        if (agenteLogado.pref_vtr) vtrSelectVtr.value = agenteLogado.pref_vtr;
+        if (agenteLogado.pref_funcao) {
+            definirFuncaoAgente(agenteLogado.pref_funcao);
+        } else {
+            vtrSelectCondutor.value = '';
+            vtrSelectApoio.value = '';
+        }
+    }
+});
+
+// Define visualmente e funcionalmente se o agente é condutor ou apoio
+window.definirFuncaoAgente = function (funcao) {
+    const btnCondutor = document.getElementById('btn-funcao-condutor');
+    const btnApoio    = document.getElementById('btn-funcao-apoio');
+
+    if (btnCondutor) btnCondutor.classList.toggle('ativo', funcao === 'condutor');
+    if (btnApoio)    btnApoio.classList.toggle('ativo',    funcao === 'apoio');
+
+    if (!agenteLogado) return;
+
+    if (funcao === 'condutor') {
+        selecionarAgenteNoSelect(vtrSelectCondutor, agenteLogado.det_codigo);
+        vtrSelectCondutor.disabled = false;
+        vtrSelectApoio.value       = '';
+        vtrSelectApoio.disabled    = false;
+    } else {
+        selecionarAgenteNoSelect(vtrSelectApoio, agenteLogado.det_codigo);
+        vtrSelectApoio.disabled    = false;
+        vtrSelectCondutor.value    = '';
+        vtrSelectCondutor.disabled = false;
+    }
+};
+
+btnEntrarOcorrencia.addEventListener('click', async () => {
+    ocultarTodasTelas();
+    telaOcorrencia.classList.remove('hidden');
+    carregarHistoricoOcorrencia();
+    carregarCodigosESetores();
+    const agora = new Date();
+    ocData.value = obterDataLocal();
+    ocHora.value = agora.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+    // Puxar viatura e função do KM aberto do agente logado
+    if (agenteLogado && agenteLogado.det_codigo) {
+        const { data: kmAberto } = await db
+            .from('registros_viatura')
+            .select('prefixo_vtr, condutor, apoio')
+            .or(`condutor.ilike.%${agenteLogado.det_codigo}%,apoio.ilike.%${agenteLogado.det_codigo}%`)
+            .eq('status', 'aberto')
+            .order('id', { ascending: false })
+            .limit(1)
+            .single();
+
+        if (kmAberto) {
+            // Preenche e bloqueia a viatura
+            ocSelectVtr.value    = kmAberto.prefixo_vtr;
+            ocSelectVtr.disabled = true;
+
+            // Descobre qual campo é do agente logado e bloqueia
+            const agenteSendoCondutor = verificaVinculoAgente(agenteLogado.det_codigo, kmAberto.condutor, '');
+            if (agenteSendoCondutor) {
+                ocSelectCondutor.value    = kmAberto.condutor || '';
+                ocSelectCondutor.disabled = true;
+                ocSelectApoio.value       = kmAberto.apoio || '';
+                ocSelectApoio.disabled    = false;
+            } else {
+                ocSelectCondutor.value    = kmAberto.condutor || '';
+                ocSelectCondutor.disabled = false;
+                ocSelectApoio.value       = kmAberto.apoio || '';
+                ocSelectApoio.disabled    = true;
+            }
+        } else {
+            // Sem KM aberto: bloqueia só o condutor com o agente logado
+            ocSelectVtr.disabled      = false;
+            selecionarAgenteNoSelect(ocSelectCondutor, agenteLogado.det_codigo);
+            ocSelectCondutor.disabled = true;
+        }
+    }
+});
+
+window.voltarParaInicio = function () {
+    // Reabilita selects que possam ter sido bloqueados
+    [vtrSelectCondutor, vtrSelectApoio, ocSelectVtr, ocSelectCondutor].forEach(s => {
+        if (s) s.disabled = false;
+    });
+    ocultarTodasTelas();
+    telaInicial.classList.remove('hidden');
+};
+
+window.voltarParaOcorrencias = async function () {
+    ocorrenciaAtual = null;
+
+    // Limpa campo de pesquisa
+    const inputPesquisa = document.getElementById('input-pesquisa-ocorrencia');
+    if (inputPesquisa) inputPesquisa.value = '';
+
+    // Reset trava do botão de enviar
+    idSendoProcessado = null;
+    btnAbrirOcorrencia.disabled = false;
+    btnAbrirOcorrencia.textContent = '➤';
+
+    // Reabilita selects bloqueados
+    [ocSelectVtr, ocSelectCondutor, ocSelectApoio].forEach(s => {
+        if (s) s.disabled = false;
+    });
+
+    // Limpa campos e atualiza data/hora
+    ocSelectVtr.value = '';
+    ocSelectCondutor.value = '';
+    ocSelectApoio.value = '';
+    ocData.value = obterDataLocal();
+    const agora = new Date();
+    ocHora.value = agora.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+    // Fecha formulário se estiver aberto
+    const form = document.getElementById('oc-form-fields');
+    const btnToggle = document.getElementById('btn-toggle-form-oc');
+    if (form && !form.classList.contains('hidden')) {
+        form.classList.add('hidden');
+        if (btnToggle) {
+            btnToggle.textContent = '+ Nova Ocorrência';
+            btnToggle.classList.remove('ativo');
+        }
+    }
+
+    // Recarrega dados do KM aberto para auto-preencher condutor/apoio/viatura
+    if (agenteLogado && agenteLogado.det_codigo) {
+        const { data: kmAberto } = await db
+            .from('registros_viatura')
+            .select('prefixo_vtr, condutor, apoio')
+            .or(`condutor.ilike.%${agenteLogado.det_codigo}%,apoio.ilike.%${agenteLogado.det_codigo}%`)
+            .eq('status', 'aberto')
+            .order('id', { ascending: false })
+            .limit(1)
+            .single();
+
+        if (kmAberto) {
+            ocSelectVtr.value    = kmAberto.prefixo_vtr;
+            ocSelectVtr.disabled = true;
+
+            const agenteSendoCondutor = verificaVinculoAgente(agenteLogado.det_codigo, kmAberto.condutor, '');
+            if (agenteSendoCondutor) {
+                ocSelectCondutor.value    = kmAberto.condutor || '';
+                ocSelectCondutor.disabled = true;
+                ocSelectApoio.value       = kmAberto.apoio || '';
+                ocSelectApoio.disabled    = false;
+            } else {
+                ocSelectCondutor.value    = kmAberto.condutor || '';
+                ocSelectCondutor.disabled = false;
+                ocSelectApoio.value       = kmAberto.apoio || '';
+                ocSelectApoio.disabled    = true;
+            }
+        } else {
+            ocSelectVtr.disabled = false;
+            selecionarAgenteNoSelect(ocSelectCondutor, agenteLogado.det_codigo);
+            ocSelectCondutor.disabled = true;
+        }
+    }
+
+    ocultarTodasTelas();
+    telaOcorrencia.classList.remove('hidden');
+
+    // Recarrega listagem e scrolla para a última mensagem
+    carregarHistoricoOcorrencia(true);
+    containerMensagensOc.scrollTop = containerMensagensOc.scrollHeight;
+};
+
+// Pesquisa na tela de viaturas
+// Debounce para não disparar a cada tecla
+function debounce(fn, ms) {
+    let timer;
+    return (...args) => { clearTimeout(timer); timer = setTimeout(() => fn(...args), ms); };
+}
+
+// Pesquisa viatura no Supabase
+document.getElementById('input-pesquisa-viatura').addEventListener('input', debounce(async function (e) {
+    const termo = e.target.value.trim();
+
+    // Sem termo: volta ao histórico paginado normal
+    if (!termo) {
+        vtrPagina = 0; vtrTodosCarregados = false; vtrCarregando = false;
+        carregarHistoricoViatura(true);
+        return;
+    }
+
+    containerMensagensVtr.innerHTML = '<div class="message system-msg">Pesquisando...</div>';
+
+    const ag = agenteLogado?.det_codigo;
+
+    // Converte data digitada no formato dd/mm/aaaa para aaaa-mm-dd para bater com o banco
+    let termoBusca = termo;
+    const matchData = termo.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    if (matchData) termoBusca = `${matchData[3]}-${matchData[2]}-${matchData[1]}`;
+    // Suporte parcial: dd/mm → -mm-dd, mm/aaaa → aaaa-mm
+    const matchMesAno = termo.match(/^(\d{2})\/(\d{4})$/);
+    if (matchMesAno) termoBusca = `${matchMesAno[2]}-${matchMesAno[1]}`;
+    const matchDiaMes = termo.match(/^(\d{2})\/(\d{2})$/);
+    if (matchDiaMes) termoBusca = `-${matchDiaMes[2]}-${matchDiaMes[1]}`;
+
+    // Supabase não aceita ::text no .or() — busca só nos campos text e filtra o resto no cliente
+    const orBusca = [
+        `prefixo_vtr.ilike.%${termoBusca}%`,
+        `condutor.ilike.%${termoBusca}%`,
+        `apoio.ilike.%${termoBusca}%`,
+        `status.ilike.%${termoBusca}%`
+    ].join(',');
+
+    const { data: resVtr, error: errVtr } = await db
+        .from('registros_viatura')
+        .select('*')
+        .order('id', { ascending: false })
+        .or(orBusca);
+
+    containerMensagensVtr.innerHTML = '';
+
+    if (errVtr) {
+        console.error('Erro pesquisa viatura:', errVtr);
+        containerMensagensVtr.innerHTML = '<div class="message system-msg">Erro na pesquisa.</div>';
+        return;
+    }
+
+    // Filtra agente, KM e data no cliente
+    let resultados = resVtr || [];
+    if (ag) resultados = resultados.filter(r => r.condutor === ag || r.apoio === ag);
+
+    // Busca adicional por KM e data no cliente (campos numérico e date)
+    if (resultados.length === 0) {
+        // Tenta buscar todos os registros do agente e filtrar localmente
+        let q2 = db.from('registros_viatura').select('*').order('id', { ascending: false });
+        if (ag) q2 = q2.or(`condutor.ilike.%${ag}%,apoio.ilike.%${ag}%`);
+        const { data: todos } = await q2;
+        if (todos) {
+            resultados = todos.filter(r => {
+                const t = termoBusca.toLowerCase();
+                return String(r.km_inicial || '').includes(t)
+                    || String(r.km_final   || '').includes(t)
+                    || String(r.data       || '').includes(t);
+            });
+        }
+    }
+
+    if (resultados.length === 0) {
+        containerMensagensVtr.innerHTML = '<div class="message system-msg">Nenhum resultado encontrado.</div>';
+        return;
+    }
+
+    [...resultados].reverse().forEach(r => renderizarMensagemVtr(r, r.id));
+    containerMensagensVtr.scrollTop = containerMensagensVtr.scrollHeight;
+}, 400));
+
+// Pesquisa ocorrência no Supabase
+document.getElementById('input-pesquisa-ocorrencia').addEventListener('input', debounce(async function (e) {
+    const termo = e.target.value.trim();
+
+    // Sem termo: volta ao histórico paginado normal
+    if (!termo) {
+        ocPagina = 0; ocTodosCarregados = false; ocCarregando = false;
+        carregarHistoricoOcorrencia(true);
+        return;
+    }
+
+    containerMensagensOc.innerHTML = '<div class="message system-msg">Pesquisando...</div>';
+
+    // Converte data digitada para formato do banco
+    let termoBuscaOc = termo;
+    const matchDataOc = termo.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    if (matchDataOc) termoBuscaOc = `${matchDataOc[3]}-${matchDataOc[2]}-${matchDataOc[1]}`;
+    const matchMesAnoOc = termo.match(/^(\d{2})\/(\d{4})$/);
+    if (matchMesAnoOc) termoBuscaOc = `${matchMesAnoOc[2]}-${matchMesAnoOc[1]}`;
+    const matchDiaMesOc = termo.match(/^(\d{2})\/(\d{2})$/);
+    if (matchDiaMesOc) termoBuscaOc = `-${matchDiaMesOc[2]}-${matchDiaMesOc[1]}`;
+
+    // Apenas campos text no .or() do Supabase — data filtrada no cliente
+    const orBuscaOc = [
+        `numero_ocorrencia.ilike.%${termoBuscaOc}%`,
+        `codigo_descricao.ilike.%${termoBuscaOc}%`,
+        `id_viatura_vinculada.ilike.%${termoBuscaOc}%`,
+        `condutor.ilike.%${termoBuscaOc}%`,
+        `local.ilike.%${termoBuscaOc}%`,
+        `apoio.ilike.%${termoBuscaOc}%`,
+        `observacao.ilike.%${termoBuscaOc}%`,
+        `status.ilike.%${termoBuscaOc}%`
+    ].join(',');
+
+    let query = db.from('ocorrencias')
+        .select('*')
+        .order('id', { ascending: false })
+        .or(orBuscaOc);
+
+    if (agenteLogado && agenteLogado.det_codigo) {
+    query = query.or(`condutor.ilike.%${agenteLogado.det_codigo}%,apoio.ilike.%${agenteLogado.det_codigo}%`);
+}
+
+    const { data: resOc, error: errOc } = await query;
+    containerMensagensOc.innerHTML = '';
+
+    if (errOc) {
+        console.error('Erro pesquisa ocorrência:', errOc);
+        containerMensagensOc.innerHTML = '<div class="message system-msg">Erro na pesquisa.</div>';
+        return;
+    }
+
+    let resultadosOc = resOc || [];
+
+    // Se não achou nos campos text, tenta filtrar por data no cliente
+    if (resultadosOc.length === 0) {
+        let q2 = db.from('ocorrencias').select('*').order('id', { ascending: false });
+        if (agenteLogado?.user_id) q2 = q2.eq('criado_por', agenteLogado.user_id);
+        const { data: todos } = await q2;
+        if (todos) {
+            resultadosOc = todos.filter(r =>
+                String(r.data || '').includes(termoBuscaOc)
+            );
+        }
+    }
+
+    if (resultadosOc.length === 0) {
+        containerMensagensOc.innerHTML = '<div class="message system-msg">Nenhum resultado encontrado.</div>';
+        return;
+    }
+
+    [...resultadosOc].reverse().forEach(r => renderizarMensagemOcorrencia(r, r.id));
+    containerMensagensOc.scrollTop = containerMensagensOc.scrollHeight;
+}, 400));
+
+
+// ==========================================
+// 5. CARREGAR LISTAS (SELECTS)
+// ==========================================
+async function carregarListas() {
+    console.log("Carregando listas...");
+
+    const [
+        { data: vtrs,    error: errVtr    },
+        { data: agentes, error: errAgente },
+        { data: codigos, error: errCodigo },
+        { data: setores, error: errSetor  }
+    ] = await Promise.all([
+        db.from('frota').select('*').order('prefixo', { ascending: true }),
+        db.from('funcionarios').select('*').order('det_codigo', { ascending: true }),
+        db.from('lista_codigos').select('*').order('id', { ascending: true }),
+        db.from('lista_setores').select('*'),
+    ]);
+
+    // Log individual de erros sem abortar tudo
+    if (errVtr)    console.error("Erro ao carregar frota:", errVtr);
+    if (errAgente) console.error("Erro ao carregar funcionários:", errAgente);
+    if (errCodigo) console.error("Erro ao carregar lista_codigos:", errCodigo);
+    if (errSetor)  console.error("Erro ao carregar lista_setores:", errSetor);
+
+    const editPrefixo  = document.getElementById('edit-prefixo');
+    const editCondutor = document.getElementById('edit-condutor');
+    const editApoio    = document.getElementById('edit-apoio');
+
+    const reset = (sel, label) => { if (sel) sel.innerHTML = `<option value="">${label}</option>`; };
+
+    reset(vtrSelectVtr,      'Viatura...');
+    reset(vtrSelectCondutor, 'Condutor...');
+    reset(vtrSelectApoio,    'Apoio (opcional)...');
+    reset(editPrefixo,       'Viatura...');
+    reset(editCondutor,      'Condutor...');
+    reset(editApoio,         'Apoio...');
+    reset(ocSelectCodigo,    'Código...');
+    reset(ocSelectSetor,     'Local...');
+    reset(ocSelectVtr,       'Viatura...');
+    reset(ocSelectCondutor,  'Condutor...');
+    reset(ocSelectApoio,     'Apoio (opcional)...');
+
+    // Viaturas
+    if (vtrs && !errVtr) {
+        vtrs.forEach(vtr => {
+            const html = `<option value="${vtr.prefixo}">${vtr.prefixo}</option>`;
+            [vtrSelectVtr, ocSelectVtr, editPrefixo].forEach(s => s && s.insertAdjacentHTML('beforeend', html));
+        });
+        // Popular viatura no modal editar ocorrência
+        vtrs.forEach(vtr => {
+            const sv = document.getElementById('oc-edit-viatura');
+            if (sv) sv.insertAdjacentHTML('beforeend',
+                `<option value="${vtr.prefixo}">${vtr.prefixo}</option>`);
+        });
+    }
+
+    // Agentes
+    if (agentes && !errAgente) {
+        agentes.forEach(ag => {
+            const html = `<option value="${ag.det_codigo}">${ag.det_codigo}</option>`;
+            [vtrSelectCondutor, vtrSelectApoio, ocSelectCondutor, ocSelectApoio, editCondutor, editApoio]
+                .forEach(s => s && s.insertAdjacentHTML('beforeend', html));
+        });
+        // Aplica preferência de função APÓS popular os selects
+        if (agenteLogado) {
+            definirFuncaoAgente(agenteLogado.pref_funcao || 'condutor');
+        }
+        // Popular selects do modal editar ocorrência (condutor/apoio)
+        agentes.forEach(ag => {
+            const html = `<option value="${ag.det_codigo}">${ag.det_codigo}</option>`;
+            ['oc-edit-condutor','oc-edit-apoio'].forEach(id => {
+                const s = document.getElementById(id);
+                if (s) s.insertAdjacentHTML('beforeend', html);
+            });
+        });
+    }
+
+    // Códigos de ocorrência
+    if (codigos && !errCodigo) {
+        console.log(`✅ lista_codigos carregada: ${codigos.length} registros`, codigos);
+        codigos.forEach(c =>
+            ocSelectCodigo.insertAdjacentHTML('beforeend',
+                `<option value="${c.descricao}">${c.descricao}</option>`)
+        );
+    } else {
+        console.error('❌ Falha lista_codigos — erro:', errCodigo, '| dados:', codigos);
+        mostrarNotificacao('erro-ocorrencia', '⚠️ Não foi possível carregar a lista de códigos.');
+    }
+
+    // Setores
+    if (setores && !errSetor) {
+        console.log(`✅ lista_setores carregada: ${setores.length} registros`, setores);
+
+        setores.forEach(s => {
+            const html = `<option value="${s.nome}">${s.nome}</option>`;
+            [ocSelectSetor].forEach(sel => {
+                if (sel) sel.insertAdjacentHTML('beforeend', html);
+            });
+            // Popular setor no modal editar ocorrência
+            const ss = document.getElementById('oc-edit-setor');
+            if (ss) ss.insertAdjacentHTML('beforeend', `<option value="${s.nome}">${s.nome}</option>`);
+            const ss2 = document.getElementById('edit-setor');
+            if (ss2) ss2.insertAdjacentHTML('beforeend', `<option value="${s.nome}">${s.nome}</option>`);
+        });
+    } else {
+        console.error('❌ Falha lista_setores — erro:', errSetor, '| dados:', setores);
+        mostrarNotificacao('erro-ocorrencia', '⚠️ Não foi possível carregar a lista de locais.');
+    }
+
+    // Popular modal editar ocorrência — códigos e viaturas
+    if (codigos && !errCodigo) {
+        codigos.forEach(c => {
+            const se = document.getElementById('oc-edit-codigo');
+            if (se) se.insertAdjacentHTML('beforeend',
+                `<option value="${c.descricao}">${c.descricao}</option>`);
+        });
+    }
+
+    // Lógica "Outro" — mostra/oculta campo manual
+    const pares = [
+        ['vtr-select-vtr',      'vtr-input-vtr-outro',       'row-vtr-outro'],
+        ['vtr-select-condutor', 'vtr-input-condutor-outro',   'row-condutor-outro'],
+        ['vtr-select-apoio',    'vtr-input-apoio-outro',      'row-apoio-outro'],
+        ['oc-select-codigo',    'oc-input-codigo-outro',      'oc-row-codigo-outro'],
+        ['oc-select-setor',     'oc-input-setor-outro',       'oc-row-setor-outro'],
+        ['oc-select-vtr',       'oc-input-vtr-outro',         'oc-row-vtr-outro'],
+        ['oc-select-condutor',  'oc-input-condutor-outro',    'oc-row-condutor-outro'],
+        ['oc-select-apoio',     'oc-input-apoio-outro',       'oc-row-apoio-outro'],
+        ['edit-prefixo',        'edit-prefixo-outro',         null],
+        ['edit-condutor',       'edit-condutor-outro',        null],
+        ['edit-apoio',          'edit-apoio-outro',           null],
+    ];
+
+    pares.forEach(([idSel, idInp, idRow]) => {
+        const select  = document.getElementById(idSel);
+        const input   = document.getElementById(idInp);
+        const wrapper = idRow ? document.getElementById(idRow) : null;
+        if (!select || !input) return;
+
+        select.addEventListener('change', function () {
+            const mostrar = this.value === 'Outros' || this.value.toLowerCase().startsWith('outro');
+            if (wrapper) wrapper.classList.toggle('hidden', !mostrar);
+            else         input.classList.toggle('hidden', !mostrar);
+            if (mostrar) input.focus();
+            else         input.value = '';
+        });
+    });
+
+    console.log("Listas carregadas!");
+
+    // Impede selecionar o mesmo agente em condutor e apoio
+    const paresBloqueio = [
+        [vtrSelectCondutor, vtrSelectApoio],
+        [ocSelectCondutor,  ocSelectApoio],
+    ];
+
+    paresBloqueio.forEach(([selA, selB]) => {
+        if (!selA || !selB) return;
+        selA.addEventListener('change', () => bloquearOpcaoRepetida(selA, selB));
+        selB.addEventListener('change', () => bloquearOpcaoRepetida(selB, selA));
+    });
+}
+
+function bloquearOpcaoRepetida(origem, destino) {
+    const valorSelecionado = origem.value;
+    Array.from(destino.options).forEach(opt => {
+        opt.disabled = (opt.value && opt.value === valorSelecionado);
+    });
+    // Se o destino já tinha o mesmo valor, limpa
+    if (destino.value === valorSelecionado) destino.value = '';
+}
+
+// Helper: pega valor do select ou do campo manual (Outro)
+function getValorCampo(idSel, idInp) {
+    const sel = document.getElementById(idSel);
+    const inp = document.getElementById(idInp);
+    if (!sel) return '';
+    return (sel.value === 'Outros' || sel.value.toLowerCase().startsWith('outro')) ? (inp ? inp.value.trim() : '') : sel.value;
+}
+
+
+// Recarrega apenas códigos e setores (chamada ao abrir a tela de ocorrências)
+async function carregarCodigosESetores() {
+    // Só recarrega se os selects ainda estiverem vazios (apenas o placeholder)
+    const jaTemCodigos = ocSelectCodigo.options.length > 1;
+    const jaTemSetores = ocSelectSetor.options.length > 1;
+    if (jaTemCodigos && jaTemSetores) return;
+
+    console.log('🔄 Recarregando códigos e setores...');
+
+    const [
+        { data: codigos, error: errCodigo },
+        { data: setores, error: errSetor  }
+    ] = await Promise.all([
+        db.from('lista_codigos').select('id, descricao').order('id', { ascending: true }),
+        db.from('lista_setores').select('id, nome'),
+    ]);
+
+    if (errCodigo) console.error('❌ lista_codigos:', errCodigo);
+    if (errSetor)  console.error('❌ lista_setores:', errSetor);
+
+    if (codigos && !errCodigo && ocSelectCodigo.options.length <= 1) {
+        console.log(`✅ Códigos carregados: ${codigos.length}`);
+        codigos.forEach(c =>
+            ocSelectCodigo.insertAdjacentHTML('beforeend',
+                `<option value="${c.descricao}">${c.descricao}</option>`)
+        );
+    } else if (errCodigo) {
+        mostrarNotificacao('erro-ocorrencia', '⚠️ Erro ao carregar códigos: ' + errCodigo.message);
+    }
+
+    if (setores && !errSetor && ocSelectSetor.options.length <= 1) {
+        console.log(`✅ Setores carregados: ${setores.length}`);
+
+        setores.forEach(s =>
+            ocSelectSetor.insertAdjacentHTML('beforeend',
+                `<option value="${s.nome}">${s.nome}</option>`)
+        );
+    } else if (errSetor) {
+        mostrarNotificacao('erro-ocorrencia', '⚠️ Erro ao carregar locais: ' + errSetor.message);
+    }
+}
+
+// ==========================================
+// 6. HISTÓRICO DE VIATURA (paginado)
+// ==========================================
+const VTR_PAGE_SIZE = 15;
+let vtrPagina       = 0;
+let vtrTodosCarregados = false;
+let vtrCarregando   = false;
+
+async function carregarHistoricoViatura(resetar = true) {
+    if (vtrCarregando) return;
+    if (resetar) {
+        containerMensagensVtr.innerHTML = '';
+        vtrPagina = 0;
+        vtrTodosCarregados = false;
+        const indicadorAntigo = document.getElementById('vtr-carregar-mais');
+        if (indicadorAntigo) indicadorAntigo.remove();
+    }
+    if (vtrTodosCarregados) return;
+
+    vtrCarregando = true;
+
+    // Indicador de carregamento no topo
+    let indicador = document.getElementById('vtr-carregar-mais');
+    if (!indicador) {
+        indicador = document.createElement('div');
+        indicador.id = 'vtr-carregar-mais';
+        indicador.className = 'message system-msg';
+        indicador.textContent = 'Carregando...';
+        containerMensagensVtr.prepend(indicador);
+    }
+
+    const from = vtrPagina * VTR_PAGE_SIZE;
+    const to   = from + VTR_PAGE_SIZE - 1;
+
+    let query = db.from('registros_viatura')
+        .select('*')
+        .order('data', { ascending: false })
+        .order('hora_inicial', { ascending: false })
+        .range(from, to);
+
+    if (agenteLogado && agenteLogado.det_codigo) {
+        query = query.or(`condutor.ilike.%${agenteLogado.det_codigo}%,apoio.ilike.%${agenteLogado.det_codigo}%`);
+    }
+
+    const { data, error } = await query;
+    vtrCarregando = false;
+
+    if (error) {
+        console.error("Erro ao carregar histórico viatura:", error);
+        indicador.remove();
+        return;
+    }
+
+    if (!data || data.length === 0) {
+        vtrTodosCarregados = true;
+        indicador.textContent = 'Início do histórico';
+        return;
+    }
+
+    // Guarda posição do scroll antes de inserir no topo
+    const scrollAntes = containerMensagensVtr.scrollHeight - containerMensagensVtr.scrollTop;
+
+    // Remove indicador temporariamente para inserir registros
+    indicador.remove();
+
+    // Insere em ordem crescente no topo (os dados vieram desc, revertemos para ordem cronológica)
+    const fragment = document.createDocumentFragment();
+    [...data].reverse().forEach(r => {
+        const tmp = document.createElement('div');
+        tmp.innerHTML = gerarHTMLMensagemVtr(r);
+        if (tmp.firstElementChild) fragment.appendChild(tmp.firstElementChild);
+    });
+    containerMensagensVtr.prepend(fragment);
+
+    // Restaura posição do scroll
+    if (resetar) {
+        containerMensagensVtr.scrollTop = containerMensagensVtr.scrollHeight;
+    } else {
+        containerMensagensVtr.scrollTop = containerMensagensVtr.scrollHeight - scrollAntes;
+    }
+
+    // Recoloca indicador no topo se ainda há mais
+    if (data.length < VTR_PAGE_SIZE) {
+        vtrTodosCarregados = true;
+        const fim = document.createElement('div');
+        fim.id = 'vtr-carregar-mais';
+        fim.className = 'message system-msg';
+        fim.textContent = 'Início do histórico';
+        containerMensagensVtr.prepend(fim);
+    } else {
+        const novoInd = document.createElement('div');
+        novoInd.id = 'vtr-carregar-mais';
+        novoInd.className = 'message system-msg';
+        novoInd.style.cursor = 'pointer';
+        novoInd.textContent = '⬆ Carregar mais';
+        novoInd.onclick = () => { carregarHistoricoViatura(false); };
+        containerMensagensVtr.prepend(novoInd);
+    }
+
+    vtrPagina++;
+}
+
+// Helper: renderiza num container temporário para extrair o elemento
+function renderizarMensagemVtrFragment(dados, container) {
+    const tmp = document.createElement('div');
+    tmp.innerHTML = gerarHTMLMensagemVtr(dados);
+    if (tmp.firstElementChild) container.appendChild(tmp.firstElementChild);
+}
+
+// Scroll infinito: ao rolar para o topo carrega mais
+containerMensagensVtr.addEventListener('scroll', () => {
+    if (containerMensagensVtr.scrollTop < 80 && !vtrTodosCarregados && !vtrCarregando) {
+        carregarHistoricoViatura(false);
+    }
+});
+
+btnAbrirKm.addEventListener('click', async () => {
+    const prefixo  = getValorCampo('vtr-select-vtr',      'vtr-input-vtr-outro');
+    const condutor = getValorCampo('vtr-select-condutor',  'vtr-input-condutor-outro');
+    const apoio    = getValorCampo('vtr-select-apoio',     'vtr-input-apoio-outro');
+    const km       = vtrKmInicial.value.trim();
+    const hora     = vtrHoraInicial.value;
+    const data     = document.getElementById('vtr-data-inicial').value;
+
+    if (!prefixo)  return mostrarNotificacao('erro-viatura', '⚠️ Selecione ou digite a Viatura.');
+    if (!condutor) return mostrarNotificacao('erro-viatura', '⚠️ Selecione ou digite o Condutor.');
+    if (!km)       return mostrarNotificacao('erro-viatura', '⚠️ Informe o KM Inicial.');
+    if (!data)     return mostrarNotificacao('erro-viatura', '⚠️ Informe a Data.');
+    if (!hora)     return mostrarNotificacao('erro-viatura', '⚠️ Informe a Hora Inicial.');
+
+    // Regra: só permite abrir KM na data atual
+    const hoje = obterDataLocal();
+    if (data !== hoje) {
+        return mostrarNotificacao('erro-viatura', '⚠️ Só é permitido abrir KM na data atual.');
+    }
+
+    // Garante que o agente logado está em um dos campos
+    if (agenteLogado && agenteLogado.det_codigo) {
+        const agente = agenteLogado.det_codigo;
+        if (!verificaVinculoAgente(agente, condutor, apoio)) {
+            return mostrarNotificacao('erro-viatura', `⚠️ Você (${agente}) precisa estar como Condutor ou Apoio.`);
+        }
+    }
+
+    // REGRA 1: Verificar se já existe KM aberto para este agente
+    const { data: kmAberto } = await db
+        .from('registros_viatura')
+        .select('id, prefixo_vtr')
+        .eq('status', 'aberto')
+        .or(`condutor.ilike.%${agenteLogado?.det_codigo}%,apoio.ilike.%${agenteLogado?.det_codigo}%`)
+        .limit(1);
+
+    if (kmAberto && kmAberto.length > 0) {
+        return mostrarNotificacao('erro-viatura',
+            `⚠️ Você já tem KM aberto na viatura ${kmAberto[0].prefixo_vtr}. Encerre antes de abrir outro.`);
+    }
+
+    // REGRA 2: Verificar se o KM inicial é válido (maior que o último KM final da viatura)
+    const { data: ultimoKm } = await db
+        .from('registros_viatura')
+        .select('km_final')
+        .eq('prefixo_vtr', prefixo)
+        .eq('status', 'fechado')
+        .order('id', { ascending: false })
+        .limit(1);
+
+    if (ultimoKm && ultimoKm.length > 0 && ultimoKm[0].km_final) {
+        const kmFinalAnterior = parseFloat(ultimoKm[0].km_final);
+        const kmAtual         = parseFloat(km);
+        if (kmAtual < kmFinalAnterior) {
+            return mostrarNotificacao('erro-viatura',
+                `⚠️ KM inválido. O último KM registrado da viatura ${prefixo} foi ${kmFinalAnterior}. O KM inicial não pode ser menor.`);
+        }
+    }
+
+    // REGRA 3: Verificar se a viatura já possui KM aberto
+    const { data: viaturaAberta } = await db
+        .from('registros_viatura')
+        .select('id, condutor, apoio')
+        .eq('prefixo_vtr', prefixo)
+        .eq('status', 'aberto')
+        .limit(1);
+
+    if (viaturaAberta && viaturaAberta.length > 0) {
+        const v = viaturaAberta[0];
+        return mostrarNotificacao('erro-viatura',
+            `⚠️ A viatura ${prefixo} já está com KM aberto (Condutor: ${v.condutor} | Apoio: ${v.apoio || '—'}). Encerre o KM atual antes de abrir um novo.`);
+    }
+
+    const dadosKm = { prefixo_vtr: prefixo, condutor, apoio, km_inicial: km, data: data, hora_inicial: hora, status: 'aberto' };
+    const { data: kmInserido, error } = await db.from('registros_viatura').insert([dadosKm]).select();
+
+    if (error) {
+        mostrarNotificacao('erro-viatura', '❌ Erro ao abrir KM: ' + error.message);
+    } else {
+        idTurnoAtual = kmInserido[0].id;
+        renderizarMensagemVtr(dadosKm, kmInserido[0].id);
+        vtrKmInicial.value = '';
+        vtrSelectVtr.value = '';
+        vtrSelectCondutor.value = '';
+        vtrSelectApoio.value = '';
+        vtrKmInicial.value = '';
+        vtrHoraInicial.value = '';
+        document.getElementById('vtr-data-inicial').value = '';
+        toggleFormViatura(); // fecha o form após abrir KM
+    }
+});
+
+function gerarHTMLMensagemVtr(dados) {
+    const idBanco  = dados.id;
+    const idMsg    = `msg-${idBanco}`;
+    const aberto   = !['fechado','finalizado','encerrado'].includes((dados.status||'').trim().toLowerCase());
+
+    const kmFinal   = dados.km_final   || '—';
+    const horaFinal = dados.hora_final || '—';
+
+    let createdAtTs = null;
+    if (dados.data) {
+        const hora = (dados.hora_inicial || '00:00:00').split(':').slice(0, 2).join(':') + ':00';
+        const ts = Date.parse(String(dados.data) + 'T' + hora);
+        if (!isNaN(ts)) createdAtTs = ts;
+    }
+    if (createdAtTs === null && dados.created_at) {
+        createdAtTs = new Date(dados.created_at).getTime();
+        if (isNaN(createdAtTs)) createdAtTs = null;
+    }
+    const isUnder24h = createdAtTs !== null && (Date.now() - createdAtTs) <= 86400000;
+    let botoesAcao = '';
+    if (aberto && isUnder24h) {
+        botoesAcao = `<div class="message-actions">
+               <button class="btn-action" onclick="editarRegistroCompleto('${idBanco}')">✏️ EDITAR</button>
+               <button class="btn-action btn-close" onclick="fecharKM('${idBanco}')">🏁 ENCERRAR</button>
+           </div>`;
+    } else if (aberto && !isUnder24h) {
+        botoesAcao = `<div class="message-actions">
+               <button class="btn-action btn-close" onclick="fecharKM('${idBanco}')">🏁 ENCERRAR</button>
+           </div>`;
+    } else if (isUnder24h) {
+        botoesAcao = `<div class="message-actions">
+               <button class="btn-action" onclick="editarRegistroCompleto('${idBanco}')">✏️ Editar</button>
+           </div>`;
+    }
+
+    const statusColor  = aberto ? 'var(--green-accent)' : '#ff5252';
+    const statusLabel  = aberto ? 'KM ABERTO' : 'KM FECHADO';
+
+    // Formata hora para HH:MM sem segundos
+    const fmt = h => h ? h.substring(0, 5) : '—';
+
+    const dataFmtVtr = dados.data
+        ? new Date(dados.data + 'T00:00:00').toLocaleDateString('pt-BR')
+        : dados.created_at
+            ? new Date(dados.created_at).toLocaleDateString('pt-BR')
+            : '—';
+
+    return `
+        <div class="message sent" id="${idMsg}" onclick="abrirDetalheOcorrenciaPorId('${idBanco}')" style="cursor:pointer;">
+            <div style="font-size:15px;font-weight:700;margin-bottom:4px;">${dados.prefixo_vtr}</div>
+            <div style="font-size:11px;color:var(--text-secondary);margin-bottom:8px;">${dataFmtVtr}</div>
+            <div style="font-size:13px;color:rgba(255,255,255,0.8);margin-bottom:6px;">
+                <span style="color:var(--text-secondary);font-size:11px;">CONDUTOR</span><br>
+                ${dados.condutor}
+            </div>
+            <div style="font-size:13px;color:rgba(255,255,255,0.8);margin-bottom:8px;">
+                <span style="color:var(--text-secondary);font-size:11px;">APOIO</span><br>
+                ${dados.apoio || '—'}
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:4px;">
+                <div>
+                    <div style="color:var(--text-secondary);font-size:11px;">KM INICIAL</div>
+                    <div style="font-size:13px;">${dados.km_inicial}</div>
+                </div>
+                <div>
+                    <div style="color:var(--text-secondary);font-size:11px;">KM FINAL</div>
+                    <div style="font-size:13px;">${kmFinal}</div>
+                </div>
+                <div>
+                    <div style="color:var(--text-secondary);font-size:11px;">HORA INICIAL</div>
+                    <div style="font-size:13px;">${fmt(dados.hora_inicial)}</div>
+                </div>
+                <div>
+                    <div style="color:var(--text-secondary);font-size:11px;">HORA FINAL</div>
+                    <div style="font-size:13px;">${aberto ? '—' : fmt(horaFinal)}</div>
+                </div>
+            </div>
+            <div style="border-top:1px solid rgba(255,255,255,0.1);margin:8px 0;"></div>
+            <div style="display:flex;align-items:center;justify-content:flex-end;gap:5px;">
+                <span style="width:8px;height:8px;border-radius:50%;background:${statusColor};display:inline-block;flex-shrink:0;"></span>
+                <span style="font-size:11px;font-weight:700;letter-spacing:0.6px;color:${statusColor};">${statusLabel}</span>
+            </div>
+            ${botoesAcao}
+        </div>`;
+}
+
+function renderizarMensagemVtr(dados, idBanco) {
+    containerMensagensVtr.insertAdjacentHTML('beforeend', gerarHTMLMensagemVtr(dados));
+    containerMensagensVtr.scrollTop = containerMensagensVtr.scrollHeight;
+}
+
+
+// ==========================================
+// 7. HISTÓRICO DE OCORRÊNCIAS (paginado)
+// ==========================================
+const OC_PAGE_SIZE = 15;
+let ocPagina          = 0;
+let ocTodosCarregados = false;
+let ocCarregando      = false;
+
+async function carregarHistoricoOcorrencia(resetar = true) {
+    if (ocCarregando) return;
+    if (resetar) {
+        containerMensagensOc.innerHTML = '';
+        ocPagina = 0;
+        ocTodosCarregados = false;
+        const indicadorAntigo = document.getElementById('oc-carregar-mais');
+        if (indicadorAntigo) indicadorAntigo.remove();
+    }
+    if (ocTodosCarregados) return;
+
+    ocCarregando = true;
+
+    let indicador = document.getElementById('oc-carregar-mais');
+    if (!indicador) {
+        indicador = document.createElement('div');
+        indicador.id = 'oc-carregar-mais';
+        indicador.className = 'message system-msg';
+        indicador.textContent = 'Carregando...';
+        containerMensagensOc.prepend(indicador);
+    }
+
+    const from = ocPagina * OC_PAGE_SIZE;
+    const to   = from + OC_PAGE_SIZE - 1;
+
+    let query = db.from('ocorrencias')
+    .select('*')
+    .order('seq_numero', { ascending: false })
+    .range(from, to);
+
+    if (agenteLogado && agenteLogado.det_codigo) {
+    query = query.or(`condutor.ilike.%${agenteLogado.det_codigo}%,apoio.ilike.%${agenteLogado.det_codigo}%`);
+}
+
+    const { data, error } = await query;
+    ocCarregando = false;
+
+    if (error) {
+        console.error("Erro ao carregar histórico ocorrência:", error);
+        indicador.remove();
+        return;
+    }
+
+    if (!data || data.length === 0) {
+        ocTodosCarregados = true;
+        indicador.textContent = 'Início do histórico';
+        return;
+    }
+
+    const scrollAntes = containerMensagensOc.scrollHeight - containerMensagensOc.scrollTop;
+
+    indicador.remove();
+
+    // Dados vieram desc (mais novo primeiro); revertemos para inserir em ordem cronológica no DOM
+    const fragment = document.createDocumentFragment();
+    [...data].reverse().forEach(r => {
+    const tmp = document.createElement('div');
+    tmp.innerHTML = gerarHTMLMensagemOcorrencia(r);
+    if (tmp.firstElementChild) fragment.appendChild(tmp.firstElementChild);
+});
+    containerMensagensOc.prepend(fragment);
+
+    if (resetar) {
+        containerMensagensOc.scrollTop = containerMensagensOc.scrollHeight;
+    } else {
+        containerMensagensOc.scrollTop = containerMensagensOc.scrollHeight - scrollAntes;
+    }
+
+    if (data.length < OC_PAGE_SIZE) {
+        ocTodosCarregados = true;
+        const fim = document.createElement('div');
+        fim.id = 'oc-carregar-mais';
+        fim.className = 'message system-msg';
+        fim.textContent = 'Início do histórico';
+        containerMensagensOc.prepend(fim);
+    } else {
+        const novoInd = document.createElement('div');
+        novoInd.id = 'oc-carregar-mais';
+        novoInd.className = 'message system-msg';
+        novoInd.style.cursor = 'pointer';
+        novoInd.textContent = '⬆ Carregar mais';
+        novoInd.onclick = () => { carregarHistoricoOcorrencia(false); };
+        containerMensagensOc.prepend(novoInd);
+    }
+
+    ocPagina++;
+}
+
+function renderizarMensagemOcorrenciaFragment(dados, container) {
+    container.innerHTML = gerarHTMLMensagemOcorrencia(dados);
+}
+
+// Scroll infinito
+containerMensagensOc.addEventListener('scroll', () => {
+    if (containerMensagensOc.scrollTop < 80 && !ocTodosCarregados && !ocCarregando) {
+        carregarHistoricoOcorrencia(false);
+    }
+});
+
+// Registrar nova ocorrência → vai direto para a tela de detalhe
+btnAbrirOcorrencia.addEventListener('click', async () => {
+    if (idSendoProcessado) return;
+    idSendoProcessado = true;
+    const textoOriginal = btnAbrirOcorrencia.textContent;
+    btnAbrirOcorrencia.disabled = true;
+    btnAbrirOcorrencia.textContent = 'Salvando...';
+    try {
+        const codigo   = getValorCampo('oc-select-codigo',   'oc-input-codigo-outro');
+        const setor    = getValorCampo('oc-select-setor',    'oc-input-setor-outro');
+        const viatura  = getValorCampo('oc-select-vtr',      'oc-input-vtr-outro');
+        const condutor = getValorCampo('oc-select-condutor', 'oc-input-condutor-outro');
+        const apoio    = getValorCampo('oc-select-apoio',    'oc-input-apoio-outro');
+        const data     = ocData.value;
+        const hora     = ocHora.value;
+
+        if (!codigo)   return mostrarNotificacao('erro-ocorrencia', '⚠️ Selecione ou digite o Código.');
+        if (!setor)    return mostrarNotificacao('erro-ocorrencia', '⚠️ Selecione ou digite o Local.');
+        if (!viatura)  return mostrarNotificacao('erro-ocorrencia', '⚠️ Selecione ou digite a Viatura.');
+        if (!condutor) return mostrarNotificacao('erro-ocorrencia', '⚠️ Selecione ou digite o Condutor.');
+        if (!hora)     return mostrarNotificacao('erro-ocorrencia', '⚠️ Informe a Hora.');
+
+        // Regra: só permite abrir ocorrência na data atual
+        const hojeOc = obterDataLocal();
+        if (data !== hojeOc) {
+            return mostrarNotificacao('erro-ocorrencia', '⚠️ Só é permitido registrar ocorrência na data atual.');
+        }
+
+        // REGRA 3: Verificar se há KM aberto para este agente
+        const { data: kmAbertoOc } = await db
+            .from('registros_viatura')
+            .select('id, prefixo_vtr')
+            .eq('status', 'aberto')
+            .or(`condutor.ilike.%${agenteLogado?.det_codigo}%,apoio.ilike.%${agenteLogado?.det_codigo}%`)
+            .limit(1);
+
+        if (!kmAbertoOc || kmAbertoOc.length === 0) {
+            return mostrarNotificacao('erro-ocorrencia',
+                '⚠️ Você não tem KM aberto. Abra o KM da viatura antes de registrar uma ocorrência.');
+        }
+
+        // Garante que o agente logado está em um dos campos
+        if (agenteLogado && agenteLogado.det_codigo) {
+            const agente = agenteLogado.det_codigo;
+            if (!verificaVinculoAgente(agente, condutor, apoio)) {
+                return mostrarNotificacao('erro-ocorrencia', `⚠️ Você (${agente}) precisa estar como Condutor ou Apoio.`);
+            }
+        }
+
+        // --- NOVA LÓGICA: Chama a função no Supabase para pegar a sequência global ---
+        const { data: numeroOcorrencia, error: errSeq } = await db.rpc('obter_proximo_numero_ocorrencia');
+        
+        if (errSeq || !numeroOcorrencia) {
+            console.error('Erro ao gerar sequência:', errSeq);
+            return mostrarNotificacao('erro-ocorrencia', '❌ Erro ao gerar o número da ocorrência.');
+        }
+
+        // Mapeamento para as colunas reais da tabela 'ocorrencias'
+        const dadosDB = {
+             numero_ocorrencia:    numeroOcorrencia,
+            seq_numero:           parseInt(numeroOcorrencia.split('/')[0]), // ← adiciona esta linha
+            codigo_descricao:     codigo,
+            local:                setor,
+            id_viatura_vinculada: viatura,
+            condutor:             condutor,
+            apoio:                apoio || null,
+            criado_por:           agenteLogado?.user_id || null,
+            data:                 data,
+            hora_inicial:         hora,
+            status:               'aberto'
+        };
+
+        const { data: resultado, error } = await db.from('ocorrencias').insert([dadosDB]).select();
+
+        if (error) {
+            mostrarNotificacao('erro-ocorrencia', '❌ Erro ao registrar: ' + error.message);
+            return;
+        }
+
+        // Adiciona balão na lista e abre a tela de detalhe
+        renderizarMensagemOcorrencia(resultado[0], resultado[0].id);
+
+        // Limpa e fecha formulário
+        ocSelectCodigo.value = ''; ocSelectSetor.value = '';
+        ocSelectVtr.value    = ''; ocSelectCondutor.value = '';
+        ocSelectApoio.value  = '';
+        toggleFormOcorrencia(); // fecha o form após registrar
+
+        // Abre detalhe direto
+        abrirDetalheOcorrencia(resultado[0]);
+    } finally {
+        idSendoProcessado = false;
+        btnAbrirOcorrencia.disabled = false;
+        btnAbrirOcorrencia.textContent = textoOriginal;
+    }
+});
+
+function gerarHTMLMensagemOcorrencia(dados) {
+    const idBanco   = dados.id;
+    const idMsg     = `msg-oc-${idBanco}`;
+    const numero    = dados.numero_ocorrencia ? `#${dados.numero_ocorrencia} — ` : '';
+    const codigo    = dados.codigo_descricao || '—';
+    const viatura   = dados.id_viatura_vinculada || '—';
+    const condutor  = dados.condutor || '—';
+    const apoio     = dados.apoio || '—';
+    const setor     = dados.local || '—';
+    const hora      = dados.hora_inicial || '—';
+    const dataRaw   = dados.data;
+    const dataFmt   = dataRaw ? new Date(dataRaw + 'T00:00:00').toLocaleDateString('pt-BR') : '—';
+
+    const observacao = dados.observacao
+        ? `<div style="margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,0.1);font-size:13px;">📝 ${dados.observacao}</div>`
+        : '';
+    // Foto legada (compatibilidade)
+    const fotoLegada = dados.foto_url
+        ? `<div style="margin-top:8px;"><img src="${dados.foto_url}" style="max-width:100%;border-radius:8px;" loading="lazy"></div>`
+        : '';
+    // Novas fotos do array
+    const fotosArray = (dados.fotos_urls || [])
+        .map(url => `<div style="margin-top:6px;"><img src="${url}" style="max-width:100%;border-radius:8px;" loading="lazy"></div>`)
+        .join('');
+    const foto = fotoLegada + fotosArray;
+
+    let createdAtOcTs;
+    if (dados.created_at) {
+        createdAtOcTs = new Date(dados.created_at).getTime();
+    } else if (dados.data) {
+        let horaOc = dados.hora_inicial || '00:00:00';
+        if (horaOc.split(':').length === 2) horaOc += ':00';
+        createdAtOcTs = new Date(dados.data + 'T' + horaOc).getTime();
+    } else {
+        createdAtOcTs = Date.now();
+    }
+    const isUnder24hOc = (Date.now() - createdAtOcTs) <= 24 * 60 * 60 * 1000;
+
+    let botoesOcorrencia = '';
+    if (!['fechado','finalizado','encerrado'].includes((dados.status||'').trim().toLowerCase())) {
+        botoesOcorrencia = `<div class="message-actions">
+            <button class="btn-action" onclick="event.stopPropagation(); adicionarObservacaoLista('${idBanco}')">📝 OBS</button>
+            <button class="btn-action" onclick="event.stopPropagation(); adicionarFotoLista('${idBanco}')">📷 FOTO</button>
+            <button class="btn-action" onclick="event.stopPropagation(); abrirModalEditarOcorrencia('${idBanco}')">✏️ EDITAR</button>
+            <button class="btn-action btn-close" onclick="event.stopPropagation(); encerrarOcorrencia('${idBanco}')">🏁 ENCERRAR</button>
+        </div>`;
+    } else if (isUnder24hOc) {
+        botoesOcorrencia = `<div class="message-actions">
+            <button class="btn-action" onclick="event.stopPropagation(); adicionarObservacaoLista('${idBanco}')">📝 OBS</button>
+            <button class="btn-action" onclick="event.stopPropagation(); adicionarFotoLista('${idBanco}')">📷 FOTO</button>
+            <button class="btn-action" onclick="event.stopPropagation(); abrirModalEditarOcorrencia('${idBanco}')">✏️ Editar</button>
+        </div>`;
+    }
+
+    const aberta        = !['fechado','finalizado','encerrado'].includes((dados.status||'').trim().toLowerCase());
+    const ocStatusLabel = aberta ? 'OCORRÊNCIA ABERTA' : 'OCORRÊNCIA FECHADA';
+    const ocStatusColor = aberta ? 'var(--green-accent)' : '#ff5252';
+    const fmt           = h => h ? h.substring(0, 5) : '—';
+    const horaFinal     = dados.hora_final ? fmt(dados.hora_final) : '—';
+
+    return `
+        <div class="message sent" id="${idMsg}">
+            <div style="font-size:15px;font-weight:700;margin-bottom:4px;">
+                ${dados.numero_ocorrencia ? `Ocorrência #${dados.numero_ocorrencia}` : 'Ocorrência'}
+            </div>
+            <div style="margin-bottom:6px;">
+                <div style="color:var(--text-secondary);font-size:11px;">VIATURA</div>
+                <div style="font-size:13px;">${viatura}</div>
+            </div>
+            <div style="margin-bottom:6px;">
+                <div style="color:var(--text-secondary);font-size:11px;">CÓDIGO</div>
+                <div style="font-size:13px;">${codigo}</div>
+            </div>
+            <div style="margin-bottom:6px;">
+                <div style="color:var(--text-secondary);font-size:11px;">LOCAL</div>
+                <div style="font-size:13px;">${setor}</div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:6px;">
+                <div>
+                    <div style="color:var(--text-secondary);font-size:11px;">CONDUTOR</div>
+                    <div style="font-size:13px;">${condutor}</div>
+                </div>
+                <div>
+                    <div style="color:var(--text-secondary);font-size:11px;">APOIO</div>
+                    <div style="font-size:13px;">${apoio}</div>
+                </div>
+                <div>
+                    <div style="color:var(--text-secondary);font-size:11px;">HORA INICIAL</div>
+                    <div style="font-size:13px;">${fmt(hora)}</div>
+                </div>
+                <div>
+                    <div style="color:var(--text-secondary);font-size:11px;">HORA FINAL</div>
+                    <div style="font-size:13px;">${horaFinal}</div>
+                </div>
+            </div>
+            <div style="margin-bottom:6px;">
+                <div style="color:var(--text-secondary);font-size:11px;">DATA</div>
+                <div style="font-size:13px;">${dataFmt}</div>
+            </div>
+            ${observacao}${foto}
+            ${botoesOcorrencia}
+            <div style="border-top:1px solid rgba(255,255,255,0.1);margin-top:8px;padding-top:6px;display:flex;align-items:center;justify-content:flex-end;gap:5px;">
+                <span style="width:8px;height:8px;border-radius:50%;background:${ocStatusColor};display:inline-block;flex-shrink:0;"></span>
+                <span style="font-size:11px;font-weight:700;letter-spacing:0.6px;color:${ocStatusColor};">${ocStatusLabel}</span>
+            </div>
+        </div>`;
+}
+
+function renderizarMensagemOcorrencia(dados, idBanco) {
+    containerMensagensOc.insertAdjacentHTML('beforeend', gerarHTMLMensagemOcorrencia(dados));
+    containerMensagensOc.scrollTop = containerMensagensOc.scrollHeight;
+}
+
+
+// ==========================================
+// 8. TELA DE DETALHE DA OCORRÊNCIA
+// ==========================================
+function abrirDetalheOcorrencia(oc) {
+    ocorrenciaAtual = oc;
+
+    // Normaliza status logo no início para usar em todo o bloco
+    const statusNormalizado = (oc.status || '').toString().trim().toLowerCase();
+    console.log('[Detalhe] status recebido:', JSON.stringify(oc.status), '| normalizado:', statusNormalizado);
+
+    // Preenche resumo
+    document.getElementById('d-codigo').textContent    = oc.codigo_descricao || '—';
+    document.getElementById('d-setor').textContent     = oc.local || '—';
+    document.getElementById('d-viatura').textContent   = oc.id_viatura_vinculada || '—';
+    document.getElementById('d-condutor').textContent  = oc.condutor || '—';
+    document.getElementById('d-apoio').textContent     = oc.apoio || '—';
+    document.getElementById('d-hora-inicial').textContent = oc.hora_inicial || '—';
+
+    const dataFmt = oc.data ? new Date(oc.data + 'T00:00:00').toLocaleDateString('pt-BR') : '—';
+    document.getElementById('d-data').textContent = dataFmt;
+
+    const rowHoraFinal = document.getElementById('d-row-hora-final');
+    if (oc.hora_final) {
+        document.getElementById('d-hora-final').textContent = oc.hora_final;
+        rowHoraFinal.style.display = 'flex';
+    } else {
+        rowHoraFinal.style.display = 'none';
+    }
+
+    // Título com número da ocorrência + status badge
+    const titulo = oc.numero_ocorrencia
+        ? `#${oc.numero_ocorrencia} — ${oc.codigo_descricao || 'Ocorrência'}`
+        : (oc.codigo_descricao || 'Ocorrência');
+    document.getElementById('detalhe-titulo').textContent = titulo;
+    const badge = document.getElementById('detalhe-status-badge');
+    if (statusNormalizado === 'aberto') {
+        badge.textContent = '● ABERTA';
+        badge.className = 'status-badge status-aberta';
+    } else {
+        badge.textContent = '● FINALIZADA';
+        badge.className = 'status-badge status-fechada';
+    }
+
+    // Mostra painel de obs/foto para todas as ocorrências (validação de 24h no save)
+    const painel = document.getElementById('painel-acoes-detalhe');
+    painel.style.display = '';
+
+    // Limpa campos do formulário
+    document.getElementById('detalhe-observacao').value = '';
+    document.getElementById('detalhe-hora-final').value = '';
+    fotosSelecionadas = [];
+    atualizarPreviewFotos();
+
+    // Limpa e carrega observações
+    carregarObservacoes(oc.id);
+
+    // Navega para a tela
+    ocultarTodasTelas();
+    telaDetalhe.classList.remove('hidden');
+}
+
+// ==========================================
+// EDITAR OCORRÊNCIA (modal simples)
+// ==========================================
+let ocorrenciaEditandoId = null;
+
+window.abrirModalEditarOcorrencia = async function (id) {
+    ocorrenciaEditandoId = id;
+    const { data: oc, error } = await db.from('ocorrencias').select('*').eq('id', id).single();
+    if (error || !oc) return mostrarNotificacao('erro-ocorrencia', '❌ Erro ao carregar ocorrência.');
+
+    const diff = (Date.now() - new Date(oc.created_at)) / (1000 * 60 * 60);
+    if (diff > 24) return mostrarNotificacao('erro-ocorrencia', '⚠️ Ocorrências com mais de 24h não podem ser editadas.');
+
+    // Preencher campos
+    const sel = (elId, val) => {
+        const el = document.getElementById(elId);
+        if (el) el.value = val || '';
+    };
+    sel('oc-edit-codigo',   oc.codigo_descricao);
+    sel('oc-edit-viatura',  oc.id_viatura_vinculada);
+    sel('oc-edit-condutor', oc.condutor);
+    sel('oc-edit-apoio',    oc.apoio);
+    sel('oc-edit-hora',     oc.hora_inicial);
+
+    const rowFinal = document.getElementById('oc-row-edit-final');
+    if (oc.status === 'fechado') {
+        rowFinal.classList.remove('hidden');
+        document.getElementById('oc-edit-hora-final').value = oc.hora_final || '';
+    } else {
+        rowFinal.classList.add('hidden');
+    }
+
+    // Trata local "outro" — usa oc-edit-setor (que é o ID populado pelo carregarListas)
+    const svLocal = document.getElementById('oc-edit-setor');
+    const inpLocal = document.getElementById('oc-edit-local-outro');
+    if (svLocal && oc.local) {
+        const existe = [...svLocal.options].some(o => o.value === oc.local);
+        if (existe) {
+            svLocal.value = oc.local;
+            if (inpLocal) { inpLocal.classList.add('hidden'); inpLocal.value = ''; }
+        } else {
+            // Valor não existe na lista — seleciona "Outros" e mostra campo manual
+            const optOutro = [...svLocal.options].find(o => o.value === 'Outros' || o.value.toLowerCase().startsWith('outro'));
+            if (optOutro) {
+                svLocal.value = optOutro.value;
+                if (inpLocal) { inpLocal.classList.remove('hidden'); inpLocal.value = oc.local; }
+            } else {
+                // Se não tem opção "Outros", adiciona dinamicamente
+                svLocal.insertAdjacentHTML('beforeend', '<option value="Outros">Outros</option>');
+                svLocal.value = 'Outros';
+                if (inpLocal) { inpLocal.classList.remove('hidden'); inpLocal.value = oc.local; }
+            }
+        }
+    }
+
+    // Trata viatura "outro"
+    const svVtr = document.getElementById('oc-edit-viatura');
+    if (svVtr && oc.id_viatura_vinculada) {
+        const existe = [...svVtr.options].some(o => o.value === oc.id_viatura_vinculada);
+        if (!existe) {
+            const optOutroVtr = [...svVtr.options].find(o => o.value === 'outro' || o.value.toLowerCase().startsWith('outro'));
+            if (optOutroVtr) {
+                svVtr.value = optOutroVtr.value;
+            } else {
+                svVtr.insertAdjacentHTML('beforeend', '<option value="outro">Outro</option>');
+                svVtr.value = 'outro';
+            }
+            const inpVtr = document.getElementById('oc-edit-viatura-outro');
+            if (inpVtr) { inpVtr.classList.remove('hidden'); inpVtr.value = oc.id_viatura_vinculada; }
+        }
+    }
+
+    document.getElementById('erro-modal-editar-oc').classList.add('hidden');
+    document.getElementById('modal-editar-oc').classList.remove('hidden');
+};
+
+// Listener para "outro" na viatura do modal
+document.getElementById('oc-edit-viatura')?.addEventListener('change', function () {
+    const inp = document.getElementById('oc-edit-viatura-outro');
+    if (inp) inp.classList.toggle('hidden', this.value !== 'outro');
+});
+
+// Listener para "outro" no local do modal
+document.getElementById('oc-edit-setor')?.addEventListener('change', function () {
+    const inp = document.getElementById('oc-edit-local-outro');
+    if (inp) {
+        const mostrar = this.value === 'Outros' || this.value.toLowerCase().startsWith('outro');
+        inp.classList.toggle('hidden', !mostrar);
+        if (!mostrar) inp.value = '';
+    }
+});
+
+window.confirmarEdicaoOcorrencia = async function () {
+    const err = id => document.getElementById(id);
+
+    const codigo   = document.getElementById('oc-edit-codigo').value;
+    const localSel = document.getElementById('oc-edit-setor').value;
+    const local    = (localSel === 'Outros' || localSel.toLowerCase().startsWith('outro'))
+        ? document.getElementById('oc-edit-local-outro').value.trim()
+        : localSel;
+    const vtrSel   = document.getElementById('oc-edit-viatura').value;
+    const viatura  = (vtrSel === 'outro' || vtrSel.toLowerCase().startsWith('outro'))
+        ? document.getElementById('oc-edit-viatura-outro').value.trim()
+        : vtrSel;
+    const condutor = document.getElementById('oc-edit-condutor').value;
+    const apoio    = document.getElementById('oc-edit-apoio').value;
+    const hora     = document.getElementById('oc-edit-hora').value;
+    const errEl    = document.getElementById('erro-modal-editar-oc');
+
+    const mostrar = msg => { errEl.textContent = msg; errEl.classList.remove('hidden'); };
+
+    if (!codigo)   return mostrar('⚠️ Selecione o Código.');
+    if (!local)    return mostrar('⚠️ Selecione o Local.');
+    if (!viatura)  return mostrar('⚠️ Informe a Viatura.');
+    if (!condutor) return mostrar('⚠️ Selecione o Condutor.');
+    if (!hora)     return mostrar('⚠️ Informe a Hora Inicial.');
+
+    const updates = {
+        codigo_descricao:     codigo,
+        local:                local,
+        id_viatura_vinculada: viatura,
+        condutor:             condutor,
+        apoio:                apoio || null,
+        hora_inicial:         hora,
+    };
+
+    const rowFinal = document.getElementById('oc-row-edit-final');
+    if (!rowFinal.classList.contains('hidden')) {
+        updates.hora_final = document.getElementById('oc-edit-hora-final').value;
+        if (!updates.hora_final) return mostrar('⚠️ Informe a Hora Final.');
+    }
+
+    const { error } = await db.from('ocorrencias').update(updates).eq('id', ocorrenciaEditandoId);
+
+    if (error) return mostrar('❌ Erro ao salvar: ' + error.message);
+
+    fecharModal('modal-editar-oc');
+
+    // Recarrega dados atualizados
+    const { data: ocAtual } = await db.from('ocorrencias').select('*').eq('id', ocorrenciaEditandoId).single();
+    if (ocAtual) {
+        // Atualiza balão na lista (se existir no DOM)
+        const balaoAntigo = document.getElementById(`msg-oc-${ocorrenciaEditandoId}`);
+        if (balaoAntigo) {
+            balaoAntigo.outerHTML = gerarHTMLMensagemOcorrencia(ocAtual);
+        }
+        // Se o detalhe desta ocorrência está aberto, atualiza o cabeçalho e o feed
+        if (ocorrenciaAtual && ocorrenciaAtual.id === ocorrenciaEditandoId) {
+            abrirDetalheOcorrencia(ocAtual);
+            mostrarNotificacao('erro-detalhe', '✅ Ocorrência atualizada!', true);
+        } else {
+            mostrarNotificacao('erro-ocorrencia', '✅ Ocorrência atualizada!', true);
+        }
+    }
+};
+
+window.encerrarOcorrencia = function (id) {
+    idSendoProcessado = id;
+
+    // Preenche hora atual automaticamente
+    const agora = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    document.getElementById('encerrar-oc-hora-final').value = agora;
+    document.getElementById('erro-modal-encerrar-oc').classList.add('hidden');
+
+    document.getElementById('modal-encerrar-oc').classList.remove('hidden');
+};
+
+window.confirmarEncerramentoOcorrencia = async function () {
+    const horaFinal = document.getElementById('encerrar-oc-hora-final').value;
+    if (!horaFinal) {
+        const errEl = document.getElementById('erro-modal-encerrar-oc');
+        errEl.textContent = '⚠️ Informe a Hora Final.';
+        errEl.classList.remove('hidden');
+        return;
+    }
+
+    const { error } = await db.from('ocorrencias')
+        .update({ status: 'fechado', hora_final: horaFinal, fechado_por: agenteLogado?.user_id || null })
+        .eq('id', idSendoProcessado);
+
+    if (error) {
+        const errEl = document.getElementById('erro-modal-encerrar-oc');
+        errEl.textContent = '❌ Erro ao encerrar: ' + error.message;
+        errEl.classList.remove('hidden');
+        return;
+    }
+
+    fecharModal('modal-encerrar-oc');
+
+    // Guarda o ID antes de limpar a trava
+    const idParaAtualizar = idSendoProcessado;
+    idSendoProcessado = null;
+
+    const { data: ocAtual } = await db.from('ocorrencias').select('*').eq('id', idParaAtualizar).single();
+    if (ocAtual) {
+        const balaoAntigo = document.getElementById(`msg-oc-${idParaAtualizar}`);
+        if (balaoAntigo) balaoAntigo.remove();
+        renderizarMensagemOcorrencia(ocAtual, ocAtual.id);
+    }
+
+    mostrarNotificacao('erro-ocorrencia', '✅ Ocorrência encerrada!', true);
+};
+
+window.removerFotoSalva = async function () {
+    if (!ocorrenciaAtual) return;
+    const { error } = await db.from('ocorrencias')
+        .update({ foto_url: null })
+        .eq('id', ocorrenciaAtual.id);
+    if (error) return mostrarNotificacao('erro-detalhe', '❌ Erro ao remover foto.');
+    ocorrenciaAtual.foto_url = null;
+    carregarObservacoes(ocorrenciaAtual.id);
+    mostrarNotificacao('erro-detalhe', '✅ Foto removida.', true);
+};
+
+// Remove uma foto do array fotos_urls pelo índice
+window.removerFotoArray = async function (idx) {
+    if (!ocorrenciaAtual) return;
+    const fotos = [...(ocorrenciaAtual.fotos_urls || [])];
+    fotos.splice(idx, 1);
+    const { error } = await db.from('ocorrencias')
+        .update({ fotos_urls: fotos })
+        .eq('id', ocorrenciaAtual.id);
+    if (error) return mostrarNotificacao('erro-detalhe', '❌ Erro ao remover foto.');
+    ocorrenciaAtual.fotos_urls = fotos;
+    carregarObservacoes(ocorrenciaAtual.id);
+    mostrarNotificacao('erro-detalhe', '✅ Foto removida.', true);
+};
+
+window.abrirDetalheOcorrenciaPorId = async function (id) {
+    const { data: oc, error } = await db.from('ocorrencias').select('*').eq('id', id).single();
+    if (error || !oc) return mostrarNotificacao('erro-ocorrencia', '❌ Erro ao abrir ocorrência.');
+    abrirDetalheOcorrencia(oc);
+};
+
+// Abre o modal de edição diretamente (sem navegar para tela de detalhe)
+window.abrirDetalheEEditar = async function (id) {
+    abrirModalEditarOcorrencia(id);
+};
+
+// Carrega todas as informações + observação + fotos da ocorrência
+async function carregarObservacoes(idOcorrencia) {
+    const container = document.getElementById('container-msgs-detalhe');
+    container.innerHTML = '<div class="message system-msg">Carregando...</div>';
+
+    const { data: oc, error } = await db
+        .from('ocorrencias')
+        .select('*')
+        .eq('id', idOcorrencia)
+        .single();
+
+    container.innerHTML = '';
+
+    if (error) {
+        container.innerHTML = '<div class="message system-msg">Adicione observações ou fotos para esta ocorrência.</div>';
+        console.warn("Erro ao carregar ocorrência:", error.message);
+        return;
+    }
+
+    // Sincroniza estado local
+    if (ocorrenciaAtual && ocorrenciaAtual.id === oc.id) {
+        ocorrenciaAtual.fotos_urls = oc.fotos_urls || [];
+        ocorrenciaAtual.foto_url   = oc.foto_url;
+    }
+
+    const diffHoras = (Date.now() - new Date(oc.created_at)) / (1000 * 60 * 60);
+    const podeRemover = diffHoras <= 24;
+    let temConteudo = false;
+
+    // Observação textual
+    if (oc.observacao) {
+        temConteudo = true;
+        const btnsObs = podeRemover
+            ? `<div class="message-actions" style="margin-top:8px;">
+                    <button class="btn-action" onclick="editarObservacao()">✏️ EDITAR</button>
+                    <button class="btn-action btn-close" onclick="excluirObservacao()">🗑️ EXCLUIR</button>
+               </div>`
+            : '';
+        container.insertAdjacentHTML('beforeend', `
+            <div class="message sent" id="msg-observacao-existente">
+                <p style="margin:0 0 4px;font-size:12px;color:rgba(255,255,255,0.5);">📝 Observação</p>
+                <p style="margin:0;" id="texto-observacao-existente">${oc.observacao}</p>
+                ${btnsObs}
+            </div>`);
+    }
+
+    // Foto legada (foto_url — compatibilidade com registros antigos)
+    if (oc.foto_url) {
+        temConteudo = true;
+        const btnRem = podeRemover
+            ? `<button onclick="removerFotoSalva()" style="margin-top:6px;background:rgba(255,82,82,0.15);
+                border:1px solid #ff5252;color:#ff8080;border-radius:6px;padding:4px 10px;
+                font-size:11px;cursor:pointer;width:100%;">✕ Remover</button>`
+            : '';
+        container.insertAdjacentHTML('beforeend', `
+            <div class="message sent">
+                <p style="margin:0 0 6px;font-size:12px;color:rgba(255,255,255,0.5);">📷 Foto registrada</p>
+                <img src="${oc.foto_url}" style="max-width:100%;border-radius:8px;" loading="lazy">
+                ${btnRem}
+            </div>`);
+    }
+
+    // Novas fotos do array fotos_urls
+    const fotos = oc.fotos_urls || [];
+    fotos.forEach((url, idx) => {
+        temConteudo = true;
+        const btnRem = podeRemover
+            ? `<button onclick="removerFotoArray(${idx})" style="margin-top:6px;background:rgba(255,82,82,0.15);
+                border:1px solid #ff5252;color:#ff8080;border-radius:6px;padding:4px 10px;
+                font-size:11px;cursor:pointer;width:100%;">✕ Remover</button>`
+            : '';
+        container.insertAdjacentHTML('beforeend', `
+            <div class="message sent">
+                <p style="margin:0 0 6px;font-size:12px;color:rgba(255,255,255,0.5);">📷 Foto ${fotos.length > 1 ? idx + 1 : 'registrada'}</p>
+                <img src="${url}" style="max-width:100%;border-radius:8px;" loading="lazy">
+                ${btnRem}
+            </div>`);
+    });
+
+    if (!temConteudo) {
+        container.insertAdjacentHTML('beforeend',
+            '<div class="message system-msg">Nenhuma observação ou foto ainda.</div>');
+    }
+
+    container.scrollTop = container.scrollHeight;
+}
+
+window.editarObservacao = function () {
+    if (!ocorrenciaAtual) return;
+
+    const diffHoras = (Date.now() - new Date(ocorrenciaAtual.created_at)) / (1000 * 60 * 60);
+    if (diffHoras > 24) {
+        return mostrarNotificacao('erro-detalhe', '⚠️ Ocorrências com mais de 24h não podem ser editadas.');
+    }
+
+    const textoAtual = ocorrenciaAtual.observacao || '';
+    const campoObs = document.getElementById('detalhe-observacao');
+    campoObs.value = textoAtual;
+    campoObs.focus();
+
+    const msgExistente = document.getElementById('msg-observacao-existente');
+    if (msgExistente) {
+        msgExistente.style.opacity = '0.5';
+        msgExistente.style.pointerEvents = 'none';
+    }
+
+    mostrarNotificacao('erro-detalhe', '✏️ Edite a observação e clique em Salvar.', false);
+};
+
+window.excluirObservacao = async function () {
+    if (!ocorrenciaAtual) return;
+
+    const diffHoras = (Date.now() - new Date(ocorrenciaAtual.created_at)) / (1000 * 60 * 60);
+    if (diffHoras > 24) {
+        return mostrarNotificacao('erro-detalhe', '⚠️ Ocorrências com mais de 24h não podem ser editadas.');
+    }
+
+    const { error } = await db.from('ocorrencias')
+        .update({ observacao: null })
+        .eq('id', ocorrenciaAtual.id);
+
+    if (error) {
+        return mostrarNotificacao('erro-detalhe', '❌ Erro ao excluir observação: ' + error.message);
+    }
+
+    ocorrenciaAtual.observacao = null;
+    carregarObservacoes(ocorrenciaAtual.id);
+    mostrarNotificacao('erro-detalhe', '✅ Observação excluída.', true);
+};
+
+function renderizarObservacao(obs) {
+    const container = document.getElementById('container-msgs-detalhe');
+    const hora = obs.created_at
+        ? new Date(obs.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+        : '';
+
+    let conteudo = '';
+    if (obs.texto)     conteudo += `<p style="margin:0 0 6px;">${obs.texto}</p>`;
+    if (obs.foto_url)  conteudo += `<img src="${obs.foto_url}" style="max-width:100%; border-radius:8px; margin-top:4px;" loading="lazy">`;
+
+    const html = `
+        <div class="message sent">
+            ${conteudo}
+            <span class="time">${hora}</span>
+        </div>`;
+    container.insertAdjacentHTML('beforeend', html);
+    container.scrollTop = container.scrollHeight;
+}
+
+// Salvar observação + foto (opcional) — grava direto na tabela ocorrencias
+document.getElementById('btn-salvar-observacao').addEventListener('click', async () => {
+    if (!ocorrenciaAtual) return;
+
+    const diffHoras = (Date.now() - new Date(ocorrenciaAtual.created_at)) / (1000 * 60 * 60);
+    if (diffHoras > 24) {
+        return mostrarNotificacao('erro-detalhe', '⚠️ Ocorrências com mais de 24h não podem ser editadas.');
+    }
+
+    const texto     = document.getElementById('detalhe-observacao').value.trim();
+    const horaFinal = document.getElementById('detalhe-hora-final').value;
+    const arquivos  = fotosSelecionadas.map(f => f.file);
+
+    if (!texto && arquivos.length === 0 && !horaFinal) {
+        return mostrarNotificacao('erro-detalhe', '⚠️ Adicione uma observação, foto ou hora final.');
+    }
+
+    const camposAtualizar = {};
+    const novasFotosUrls = [];
+
+    // Upload de todas as fotos selecionadas
+    for (const arquivo of arquivos) {
+        const ext     = arquivo.name.split('.').pop();
+        const caminho = `ocorrencias/${ocorrenciaAtual.id}/${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`;
+        const { error: errUpload } = await db.storage
+            .from('fotos')
+            .upload(caminho, arquivo, { upsert: true });
+
+        if (errUpload) {
+            mostrarNotificacao('erro-detalhe', '❌ Erro ao enviar foto: ' + errUpload.message);
+            return;
+        }
+        const { data: { publicUrl } } = db.storage.from('fotos').getPublicUrl(caminho);
+        novasFotosUrls.push(publicUrl);
+    }
+
+    // Observação textual
+    if (texto) {
+        camposAtualizar.observacao = texto;
+    }
+
+    // Hora final
+    if (horaFinal) {
+        camposAtualizar.hora_final = horaFinal;
+    }
+
+    // Atualiza campos de texto/hora no banco (se houver)
+    if (Object.keys(camposAtualizar).length > 0) {
+        const { error: errUpdate } = await db.from('ocorrencias')
+            .update(camposAtualizar)
+            .eq('id', ocorrenciaAtual.id);
+        if (errUpdate) {
+            mostrarNotificacao('erro-detalhe', '❌ Erro ao salvar: ' + errUpdate.message);
+            return;
+        }
+        Object.assign(ocorrenciaAtual, camposAtualizar);
+    }
+
+    // Adiciona todas as fotos ao array via RPC
+    for (const novaFotoUrl of novasFotosUrls) {
+        const { error: errFoto } = await db.rpc('append_foto_ocorrencia', {
+            oc_id:    ocorrenciaAtual.id,
+            nova_url: novaFotoUrl
+        });
+        if (errFoto) {
+            mostrarNotificacao('erro-detalhe', '❌ Erro ao salvar foto: ' + errFoto.message);
+            return;
+        }
+    }
+
+    // Recarrega feed se salvou algo visual
+    if (novasFotosUrls.length > 0 || camposAtualizar.observacao) {
+        carregarObservacoes(ocorrenciaAtual.id);
+    }
+
+    if (camposAtualizar.hora_final) {
+        document.getElementById('d-hora-final').textContent = camposAtualizar.hora_final;
+        document.getElementById('d-row-hora-final').style.display = 'flex';
+    }
+
+    // Limpa campos
+    document.getElementById('detalhe-observacao').value = '';
+    document.getElementById('detalhe-hora-final').value = '';
+    fotosSelecionadas = [];
+    atualizarPreviewFotos();
+
+    // Restaura estado visual da observação existente se estava editando
+    const msgExistente = document.getElementById('msg-observacao-existente');
+    if (msgExistente) {
+        msgExistente.style.opacity = '';
+        msgExistente.style.pointerEvents = '';
+    }
+
+    mostrarNotificacao('erro-detalhe', '✅ Salvo!', true);
+});
+
+// Preview das fotos selecionadas
+document.getElementById('detalhe-foto').addEventListener('change', function () {
+    const novosArquivos = Array.from(this.files);
+    novosArquivos.forEach(file => {
+        fotosSelecionadas.push({
+            file: file,
+            previewUrl: URL.createObjectURL(file)
+        });
+    });
+    this.value = '';
+    atualizarPreviewFotos();
+});
+
+function atualizarPreviewFotos() {
+    const container = document.getElementById('foto-preview-container');
+    container.innerHTML = '';
+
+    if (fotosSelecionadas.length === 0) {
+        container.innerHTML = '<span id="foto-nome" style="flex:1;font-size:12px;color:var(--text-secondary);">Nenhuma foto</span>';
+        return;
+    }
+
+    fotosSelecionadas.forEach((foto, idx) => {
+        const thumb = document.createElement('div');
+        thumb.className = 'foto-preview-thumb';
+        thumb.innerHTML = `
+            <img src="${foto.previewUrl}" alt="Preview">
+            <button class="btn-remove-foto" onclick="removerFotoPreview(${idx})">✕</button>
+        `;
+        container.appendChild(thumb);
+    });
+}
+
+window.removerFotoPreview = function (idx) {
+    URL.revokeObjectURL(fotosSelecionadas[idx].previewUrl);
+    fotosSelecionadas.splice(idx, 1);
+    atualizarPreviewFotos();
+};
+
+
+
+
+// ==========================================
+// 9. MODAIS DE VIATURA (Editar / Fechar KM)
+// ==========================================
+function setValorInteligente(idSel, idInp, valor) {
+    const select = document.getElementById(idSel);
+    const input  = document.getElementById(idInp);
+    if (!select || !input) return;
+    const existe = Array.from(select.options).some(o => o.value === valor);
+    if (existe && valor && valor.toLowerCase() !== 'outro') {
+        select.value = valor;
+        input.classList.add('hidden');
+        input.value = '';
+    } else {
+        select.value = 'outro';
+        input.value  = valor || '';
+        input.classList.remove('hidden');
+    }
+}
+
+window.editarRegistroCompleto = async function (id) {
+    idSendoProcessado = id;
+    const { data: reg, error } = await db.from('registros_viatura').select('*').eq('id', id).single();
+    if (error) return mostrarNotificacao('erro-viatura', '❌ Erro ao carregar dados.');
+
+    let createdAtTs = null;
+    if (reg.data) {
+        const hora = (reg.hora_inicial || '00:00:00').split(':').slice(0, 2).join(':') + ':00';
+        const ts = Date.parse(String(reg.data) + 'T' + hora);
+        if (!isNaN(ts)) createdAtTs = ts;
+    }
+    if (createdAtTs === null && reg.created_at) {
+        createdAtTs = new Date(reg.created_at).getTime();
+        if (isNaN(createdAtTs)) createdAtTs = null;
+    }
+    const isUnder24h = createdAtTs !== null && (Date.now() - createdAtTs) <= 86400000;
+    if (!isUnder24h) return mostrarNotificacao('erro-viatura', '⚠️ Registros com mais de 24h não podem ser editados.');
+
+    if (reg.status === 'aberto') {
+        const { data: suc } = await db.from('registros_viatura').select('id').gt('created_at', reg.created_at).limit(1);
+        if (suc && suc.length > 0) return mostrarNotificacao('erro-viatura', '⚠️ Existe um KM mais recente aberto.');
+    }
+
+    setValorInteligente('edit-prefixo',  'edit-prefixo-outro',  reg.prefixo_vtr);
+    setValorInteligente('edit-condutor', 'edit-condutor-outro', reg.condutor);
+    setValorInteligente('edit-apoio',    'edit-apoio-outro',    reg.apoio);
+    document.getElementById('edit-km').value   = reg.km_inicial;
+    document.getElementById('edit-hora').value = reg.hora_inicial;
+
+    const rowFinal = document.getElementById('row-edit-final');
+    if (reg.status === 'fechado') {
+        rowFinal.classList.remove('hidden');
+        document.getElementById('edit-km-final').value   = reg.km_final || '';
+        document.getElementById('edit-hora-final').value = reg.hora_final || '';
+    } else {
+        rowFinal.classList.add('hidden');
+    }
+
+    // Ambos os campos ficam livres para edição — a validação no salvar garante a regra
+    document.getElementById('edit-condutor').disabled = false;
+    document.getElementById('edit-apoio').disabled    = false;
+
+    document.getElementById('modal-editar').classList.remove('hidden');
+};
+
+window.confirmarEdicao = async function () {
+    const { data: regAtual } = await db.from('registros_viatura').select('*').eq('id', idSendoProcessado).single();
+    if (regAtual) {
+        let createdAtTs = null;
+        if (regAtual.data) {
+            const hora = (regAtual.hora_inicial || '00:00:00').split(':').slice(0, 2).join(':') + ':00';
+            const ts = Date.parse(String(regAtual.data) + 'T' + hora);
+            if (!isNaN(ts)) createdAtTs = ts;
+        }
+        if (createdAtTs === null && regAtual.created_at) {
+            createdAtTs = new Date(regAtual.created_at).getTime();
+            if (isNaN(createdAtTs)) createdAtTs = null;
+        }
+        const isUnder24h = createdAtTs !== null && (Date.now() - createdAtTs) <= 86400000;
+        if (!isUnder24h) return mostrarNotificacao('erro-modal-editar', '⚠️ Registros com mais de 24h não podem ser editados.');
+    }
+
+    const novos = {
+        prefixo_vtr:  getValorCampo('edit-prefixo',  'edit-prefixo-outro'),
+        condutor:     getValorCampo('edit-condutor', 'edit-condutor-outro'),
+        apoio:        getValorCampo('edit-apoio',    'edit-apoio-outro'),
+        km_inicial:   document.getElementById('edit-km').value,
+        hora_inicial: document.getElementById('edit-hora').value,
+    };
+    
+    const rowFinal = document.getElementById('row-edit-final');
+    if (!rowFinal.classList.contains('hidden')) {
+        novos.km_final   = document.getElementById('edit-km-final').value;
+        novos.hora_final = document.getElementById('edit-hora-final').value;
+        if (!novos.km_final) return mostrarNotificacao('erro-modal-editar', '⚠️ Informe o KM Final.');
+        if (!novos.hora_final) return mostrarNotificacao('erro-modal-editar', '⚠️ Informe a Hora Final.');
+    }
+
+    if (!novos.prefixo_vtr) return mostrarNotificacao('erro-modal-editar', '⚠️ Informe a Viatura.');
+    if (!novos.condutor)    return mostrarNotificacao('erro-modal-editar', '⚠️ Informe o Condutor.');
+    if (!novos.km_inicial)  return mostrarNotificacao('erro-modal-editar', '⚠️ Informe o KM Inicial.');
+    if (novos.condutor && novos.apoio && novos.condutor === novos.apoio)
+        return mostrarNotificacao('erro-modal-editar', '⚠️ Condutor e Apoio não podem ser o mesmo agente.');
+    if (agenteLogado && agenteLogado.det_codigo) {
+        const agente = agenteLogado.det_codigo;
+        if (!verificaVinculoAgente(agente, novos.condutor, novos.apoio))
+            return mostrarNotificacao('erro-modal-editar', `⚠️ Você (${agente}) precisa estar como Condutor ou Apoio.`);
+    }
+
+    const { error } = await db.from('registros_viatura').update(novos).eq('id', idSendoProcessado);
+    if (error) {
+        mostrarNotificacao('erro-modal-editar', '❌ Erro ao atualizar: ' + error.message);
+    } else {
+        fecharModal('modal-editar');
+        const balao = document.getElementById(`msg-${idSendoProcessado}`);
+        if (balao) {
+            balao.querySelector('strong').innerText    = `Viatura ${novos.prefixo_vtr} ABERTA!`;
+            balao.querySelector('small').innerText     = `Condutor: ${novos.condutor} | Apoio: ${novos.apoio || '—'}`;
+            balao.querySelector('.dados-km').innerText = `KM Inicial: ${novos.km_inicial} | Hora: ${novos.hora_inicial}`;
+            balao.style.backgroundColor = 'var(--green-accent)';
+            setTimeout(() => balao.style.backgroundColor = 'var(--msg-sent)', 500);
+        }
+    }
+};
+
+window.fecharKM = async function (id) {
+    // REGRA 4: Verificar se há ocorrência aberta antes de fechar o KM
+    const { data: ocAberta } = await db
+        .from('ocorrencias')
+        .select('id, numero_ocorrencia, codigo_descricao')
+        .eq('status', 'aberto')
+        .eq('criado_por', agenteLogado?.user_id)
+        .limit(1);
+
+    if (ocAberta && ocAberta.length > 0) {
+        const oc = ocAberta[0];
+        const num = oc.numero_ocorrencia ? `#${oc.numero_ocorrencia}` : '';
+        return mostrarNotificacao('erro-viatura',
+            `⚠️ Há uma ocorrência aberta ${num} (${oc.codigo_descricao || ''}). Encerre-a antes de fechar o KM.`);
+    }
+
+    idSendoProcessado = id;
+    document.getElementById('fechar-hora-final').value =
+        new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    document.getElementById('fechar-km-final').value = '';
+    document.getElementById('modal-fechar').classList.remove('hidden');
+};
+
+window.confirmarFechamento = async function () {
+    const kmFinal   = document.getElementById('fechar-km-final').value.trim();
+    const horaFinal = document.getElementById('fechar-hora-final').value;
+    if (!kmFinal) return mostrarNotificacao('erro-modal-fechar', '⚠️ Informe o KM Final.');
+
+    const { error } = await db.from('registros_viatura')
+        .update({ km_final: kmFinal, hora_final: horaFinal, status: 'fechado' })
+        .eq('id', idSendoProcessado);
+
+    if (error) {
+        mostrarNotificacao('erro-modal-fechar', '❌ Erro ao encerrar: ' + error.message);
+    } else {
+        fecharModal('modal-fechar');
+        const balao = document.getElementById(`msg-${idSendoProcessado}`);
+        if (balao) {
+            balao.style.opacity = '0.7';
+            balao.querySelector('.message-actions').innerHTML =
+                `✅ KM Finalizado: ${kmFinal} (${horaFinal})`;
+        }
+    }
+};
+
+window.fecharModal = function (idModal) {
+    document.getElementById(idModal)?.classList.add('hidden');
+    // Reabilita selects que possam ter sido bloqueados no modal de editar
+    if (idModal === 'modal-editar') {
+        ['edit-condutor', 'edit-apoio'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.disabled = false;
+        });
+    }
+};
+
+
+// ==========================================
+// 10. AUTENTICAÇÃO
+// ==========================================
+btnEntrar.addEventListener('click', async () => {
+    const email    = inputEmail.value.trim();
+    const password = inputSenha.value;
+    if (!email || !password) return mostrarNotificacao('erro-login', '⚠️ Preencha e-mail e senha.');
+
+    const { error } = await db.auth.signInWithPassword({ email, password });
+    if (error) mostrarNotificacao('erro-login', '❌ Credenciais inválidas.');
+    else       iniciarAplicativo();
+});
+
+async function verificarSessaoAtiva() {
+    const { data: { session } } = await db.auth.getSession();
+    if (session) iniciarAplicativo();
+    else {
+        ocultarTodasTelas();
+        telaLogin.classList.remove('hidden');
+    }
+}
+
+async function iniciarAplicativo() {
+    const { data: { user } } = await db.auth.getUser();
+    if (user) {
+        // Extrai o identificador do agente direto do email (ex: "det10" de "det10@mobilidade.com")
+        const codigoDoEmail = user.email.split('@')[0].toUpperCase().replace(/(\d)/, ' $1');
+        // Resultado: "det10" → "DET 10"
+
+        const { data: perfil } = await db.from('funcionarios')
+            .select('det_codigo, pref_vtr, pref_funcao')
+            .eq('user_id', user.id)
+            .single();
+
+        agenteLogado = Object.assign({}, perfil || {}, {
+            user_id:    user.id,
+            email:      user.email,
+            det_codigo: perfil?.det_codigo || codigoDoEmail,
+        });
+
+        const header = document.getElementById('header-titulo');
+        if (header) header.innerText = `Agente: ${agenteLogado.det_codigo}`;
+    }
+    ocultarTodasTelas();
+    telaInicial.classList.remove('hidden');
+    carregarListas();
+}
+
+const btnSair = document.getElementById('btn-sair');
+if (btnSair) {
+    btnSair.addEventListener('click', async () => {
+        await db.auth.signOut();
+        agenteLogado = null;
+        inputEmail.value = '';
+        inputSenha.value = '';
+        const header = document.getElementById('header-titulo');
+        if (header) header.innerText = 'Mobilidade Urbana';
+        ocultarTodasTelas();
+        telaLogin.classList.remove('hidden');
+    });
+}
+
+
+// ==========================================
+// 11. CONFIGURAÇÕES / PREFERÊNCIAS
+// ==========================================
+const btnConfig      = document.getElementById('btn-config');
+const btnSalvarPref  = document.getElementById('btn-salvar-pref');
+const prefVtrSelect  = document.getElementById('pref_vtr');
+const prefFuncaoSelect = document.getElementById('pref_funcao');
+
+if (btnConfig) {
+    btnConfig.addEventListener('click', () =>
+        document.getElementById('modal-config').classList.remove('hidden'));
+}
+
+window.abrirPreferencias = function () {
+    fecharModal('modal-config');
+    prefVtrSelect.innerHTML = vtrSelectVtr.innerHTML;
+    if (agenteLogado) {
+        prefVtrSelect.value    = agenteLogado.pref_vtr    || '';
+        prefFuncaoSelect.value = agenteLogado.pref_funcao || '';
+        // Remove opção "Outro" do select de viatura nas preferências se existir
+        const outroPref = prefVtrSelect.querySelector('option[value="outro"]');
+        if (outroPref) outroPref.remove();
+    }
+    document.getElementById('modal-preferencias').classList.remove('hidden');
+};
+
+if (btnSalvarPref) {
+    btnSalvarPref.addEventListener('click', async () => {
+        const { data: { user } } = await db.auth.getUser();
+        const dados = { pref_vtr: prefVtrSelect.value, pref_funcao: prefFuncaoSelect.value };
+        const { error } = await db.from('funcionarios').update(dados).eq('user_id', user.id);
+        if (error) {
+            mostrarNotificacao('erro-viatura', '❌ Erro ao salvar preferências.');
+        } else {
+            if (agenteLogado) { agenteLogado.pref_vtr = dados.pref_vtr; agenteLogado.pref_funcao = dados.pref_funcao; }
+            fecharModal('modal-preferencias');
+            mostrarNotificacao('erro-viatura', '✅ Preferências salvas!', true);
+        }
+    });
+}
+
+window.abrirTrocarSenha = function () {
+    fecharModal('modal-config');
+    if (!document.getElementById('modal-trocar-senha')) {
+        const html = `
+        <div id="modal-trocar-senha" class="modal-overlay">
+            <div class="modal-card">
+                <h3>Alterar Senha</h3>
+                <div id="erro-trocar-senha" class="erro-inline hidden"></div>
+                <div class="modal-body">
+                    <label>Nova Senha:</label>
+                    <input type="password" id="nova-senha" placeholder="Mínimo 6 caracteres">
+                    <label>Confirmar Nova Senha:</label>
+                    <input type="password" id="confirmar-nova-senha" placeholder="Repita a senha">
+                </div>
+                <div class="modal-footer">
+                    <button class="btn-cancelar" onclick="fecharModal('modal-trocar-senha')">Cancelar</button>
+                    <button class="btn-salvar" id="btn-confirmar-trocar-senha">Salvar Senha</button>
+                </div>
+            </div>
+        </div>`;
+        document.body.insertAdjacentHTML('beforeend', html);
+        document.getElementById('btn-confirmar-trocar-senha').addEventListener('click', async () => {
+            const nova      = document.getElementById('nova-senha').value;
+            const confirmar = document.getElementById('confirmar-nova-senha').value;
+            if (!nova || nova.length < 6) return mostrarNotificacao('erro-trocar-senha', '⚠️ Mínimo 6 caracteres.');
+            if (nova !== confirmar)        return mostrarNotificacao('erro-trocar-senha', '⚠️ Senhas não coincidem.');
+            const { error } = await db.auth.updateUser({ password: nova });
+            if (error) mostrarNotificacao('erro-trocar-senha', '❌ Erro: ' + error.message);
+            else {
+                fecharModal('modal-trocar-senha');
+                mostrarNotificacao('erro-viatura', '✅ Senha alterada!', true);
+            }
+        });
+    }
+    document.getElementById('modal-trocar-senha').classList.remove('hidden');
+};
+
+
+// ==========================================
+// OBSERVAÇÃO E FOTO DIRETO DA LISTA
+// ==========================================
+let fotoListaTargetId = null;
+
+window.adicionarObservacaoLista = async function (id) {
+    const { data: oc, error } = await db.from('ocorrencias').select('*').eq('id', id).single();
+    if (error || !oc) return mostrarNotificacao('erro-ocorrencia', '❌ Erro ao carregar ocorrência.');
+
+    const diffHoras = (Date.now() - new Date(oc.created_at)) / (1000 * 60 * 60);
+    if (diffHoras > 24) {
+        return mostrarNotificacao('erro-ocorrencia', '⚠️ Ocorrências com mais de 24h não podem ser editadas.');
+    }
+
+    const observacao = prompt('Observação para esta ocorrência:', oc.observacao || '');
+    if (observacao === null) return;
+    const obs = observacao.trim();
+    if (!obs) return mostrarNotificacao('erro-ocorrencia', '⚠️ A observação não pode ficar vazia.');
+
+    const { error: errUpdate } = await db.from('ocorrencias')
+        .update({ observacao: obs })
+        .eq('id', id);
+
+    if (errUpdate) return mostrarNotificacao('erro-ocorrencia', '❌ Erro ao salvar: ' + errUpdate.message);
+
+    mostrarNotificacao('erro-ocorrencia', '✅ Observação salva!', true);
+    carregarHistoricoOcorrencia(true);
+};
+
+window.adicionarFotoLista = function (id) {
+    fotoListaTargetId = id;
+    const input = document.getElementById('lista-foto-input');
+    input.value = '';
+    input.click();
+};
+
+document.getElementById('lista-foto-input').addEventListener('change', async function () {
+    if (!fotoListaTargetId) return;
+    const arquivos = Array.from(this.files);
+    if (arquivos.length === 0) return;
+
+    const { data: oc, error } = await db.from('ocorrencias').select('*').eq('id', fotoListaTargetId).single();
+    if (error || !oc) {
+        mostrarNotificacao('erro-ocorrencia', '❌ Erro ao carregar ocorrência.');
+        return;
+    }
+
+    const diffHoras = (Date.now() - new Date(oc.created_at)) / (1000 * 60 * 60);
+    if (diffHoras > 24) {
+        return mostrarNotificacao('erro-ocorrencia', '⚠️ Ocorrências com mais de 24h não podem ser editadas.');
+    }
+
+    const novasFotosUrls = [];
+    for (const arquivo of arquivos) {
+        const ext = arquivo.name.split('.').pop();
+        const caminho = `ocorrencias/${fotoListaTargetId}/${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`;
+        const { error: errUpload } = await db.storage
+            .from('fotos')
+            .upload(caminho, arquivo, { upsert: true });
+
+        if (errUpload) {
+            mostrarNotificacao('erro-ocorrencia', '❌ Erro ao enviar foto: ' + errUpload.message);
+            return;
+        }
+        const { data: { publicUrl } } = db.storage.from('fotos').getPublicUrl(caminho);
+        novasFotosUrls.push(publicUrl);
+    }
+
+    for (const novaFotoUrl of novasFotosUrls) {
+        const { error: errFoto } = await db.rpc('append_foto_ocorrencia', {
+            oc_id: fotoListaTargetId,
+            nova_url: novaFotoUrl
+        });
+        if (errFoto) {
+            mostrarNotificacao('erro-ocorrencia', '❌ Erro ao salvar foto: ' + errFoto.message);
+            return;
+        }
+    }
+
+    mostrarNotificacao('erro-ocorrencia', `✅ ${novasFotosUrls.length} foto(s) salva(s)!`, true);
+    carregarHistoricoOcorrencia(true);
+});
+
+// ==========================================
+// TEMA CLARO / ESCURO
+// ==========================================
+function aplicarTema(tema) {
+    if (tema === 'light') {
+        document.body.classList.add('light-theme');
+    } else {
+        document.body.classList.remove('light-theme');
+    }
+}
+
+window.toggleTema = function () {
+    const isLight = document.body.classList.contains('light-theme');
+    const novoTema = isLight ? 'dark' : 'light';
+    aplicarTema(novoTema);
+    localStorage.setItem('temaPreferencia', novoTema);
+};
+
+// ==========================================
+// INICIALIZAÇÃO
+// ==========================================
+const temaSalvo = localStorage.getItem('temaPreferencia') || 'dark';
+aplicarTema(temaSalvo);
+verificarSessaoAtiva();

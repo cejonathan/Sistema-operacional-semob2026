@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mobilidade Urbana</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<body>
+
+    <div class="app-container">
+
+        <!-- ==================== TELA LOGIN ==================== -->
+        <div id="tela-login" class="screen">
+            <header class="app-header" style="justify-content: center;">
+                <h2>Mobilidade Urbana - Acesso</h2>
+            </header>
+            <div class="chat-input-area" style="margin: auto; width: 90%; border-radius: 10px; padding: 20px; background-color: var(--bg-panel);">
+                <div id="erro-login" class="erro-inline hidden"></div>
+                <div class="input-group" style="flex-direction: column; gap: 15px;">
+                    <label for="login-email" class="sr-only">E-mail</label>
+                    <input type="email" id="login-email" placeholder="E-mail do Agente" autocomplete="email">
+                    <label for="login-senha" class="sr-only">Senha</label>
+                    <input type="password" id="login-senha" placeholder="Senha">
+                </div>
+                <div class="modal-footer" style="justify-content: center; margin-top: 20px;">
+                    <button class="btn-salvar" id="btn-entrar" style="flex: 1; text-align: center;">Entrar</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ==================== TELA INICIAL ==================== -->
+        <div id="tela-inicial" class="screen">
+            <header class="app-header" style="display: flex; justify-content: space-between; align-items: center; padding: 0 15px;">
+                <h2 id="header-titulo">Mobilidade Urbana</h2>
+                <div style="display: flex; gap: 15px; align-items: center;">
+                    <span id="btn-config" style="cursor: pointer; font-size: 20px;" title="Configurações">⚙️</span>
+                    <button id="btn-sair" class="btn-cancelar" style="padding: 5px 10px; font-size: 12px;">Sair</button>
+                </div>
+            </header>
+
+            <div id="modal-config" class="modal-overlay hidden">
+                <div class="modal-card">
+                    <h3>Configurações</h3>
+                    <div class="menu-settings">
+                        <div class="menu-item" onclick="abrirPreferencias()"><span>⭐</span><p>Minhas Preferências</p></div>
+                        <div class="menu-item" onclick="abrirTrocarSenha()"><span>🔑</span><p>Alterar Senha</p></div>
+                        <div class="menu-item" onclick="toggleTema()"><span>🌗</span><p>Alternar Tema</p></div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn-cancelar" onclick="fecharModal('modal-config')">Fechar</button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="modal-preferencias" class="modal-overlay hidden">
+                <div class="modal-card">
+                    <h3>Minhas Preferências</h3>
+                    <div class="modal-body">
+                        <label>Viatura Padrão:</label>
+                        <select id="pref_vtr"><option value="">Nenhuma</option></select>
+                        <label>Função Padrão:</label>
+                        <select id="pref_funcao">
+                            <option value="">Nenhuma</option>
+                            <option value="condutor">Condutor</option>
+                            <option value="apoio">Apoio</option>
+                        </select>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn-cancelar" onclick="fecharModal('modal-preferencias')">Cancelar</button>
+                        <button class="btn-salvar" id="btn-salvar-pref">Salvar</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="chat-list" id="lista-conversas">
+                <div class="chat-item" id="btn-entrar-viatura">
+                    <div class="avatar">🚓</div>
+                    <div class="chat-info"><h3>VIATURAS</h3><p>Toque para abrir ou fechar KM</p></div>
+                </div>
+                <div class="chat-item" id="btn-entrar-ocorrencia">
+                    <div class="avatar">📝</div>
+                    <div class="chat-info"><h3>OCORRÊNCIAS</h3><p>Toque para abrir ou fechar ocorrências</p></div>
+                </div>
+                <!-- *** NOVO ITEM: RELATÓRIO *** -->
+                <div class="chat-item" id="btn-entrar-relatorio">
+                    <div class="avatar">📋</div>
+                    <div class="chat-info"><h3>RELATÓRIOS</h3><p>Toque para registrar um relatório</p></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ==================== TELA VIATURAS ==================== -->
+        <div id="tela-conversa-viatura" class="screen hidden">
+            <header class="chat-header">
+                <button class="back-btn" onclick="voltarParaInicio()">
+                <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+                </button>
+                <div class="avatar small">🚓</div>
+                <h2>VIATURAS</h2>
+            </header>
+            <div class="search-container">
+                <div class="search-bar">
+                    <span class="search-icon">🔍</span>
+                    <label for="input-pesquisa-viatura" class="sr-only">Pesquisar viatura</label>
+                    <input type="text" id="input-pesquisa-viatura" placeholder="Pesquisar viatura...">
+                </div>
+            </div>
+            <div class="messages-container" id="container-msgs-viatura">
+            </div>
+            <div id="erro-viatura" class="erro-inline hidden"></div>
+            <footer class="chat-input-area">
+                <div class="input-group">
+                    <button id="btn-toggle-form-vtr" class="btn-toggle-form" onclick="toggleFormViatura()">+ ABRIR KM</button>
+                </div>
+                <div id="vtr-form-fields" class="hidden">
+                    <div class="input-group">
+                        <label for="vtr-select-vtr" class="sr-only">Viatura</label>
+                        <select id="vtr-select-vtr"><option value="">Viatura...</option></select>
+                        <label for="vtr-select-condutor" class="sr-only">Condutor</label>
+                        <select id="vtr-select-condutor"><option value="">Condutor...</option></select>
+                    </div>
+                    <div id="row-vtr-outro" class="input-group hidden">
+                        <input type="text" id="vtr-input-vtr-outro" placeholder="Digite a Viatura">
+                    </div>
+                    <div id="row-condutor-outro" class="input-group hidden">
+                        <input type="text" id="vtr-input-condutor-outro" placeholder="Digite o Condutor">
+                    </div>
+                    <!-- Botões de função -->
+                    <div class="input-group" style="gap:8px;">
+                        <button id="btn-funcao-condutor" class="btn-action" style="flex:1;padding:10px;" onclick="definirFuncaoAgente('condutor')">🚗 Condutor</button>
+                        <button id="btn-funcao-apoio" class="btn-action" style="flex:1;padding:10px;" onclick="definirFuncaoAgente('apoio')">👤 Apoio</button>
+                    </div>
+                    <div class="input-group">
+                        <label for="vtr-select-apoio" class="sr-only">Apoio</label>
+                        <select id="vtr-select-apoio"><option value="">Apoio (opcional)...</option></select>
+                    </div>
+                    <div id="row-apoio-outro" class="input-group hidden">
+                        <input type="text" id="vtr-input-apoio-outro" placeholder="Digite o Apoio">
+                    </div>
+                    <div class="input-group">
+                        <label for="vtr-km-inicial" class="sr-only">KM Inicial</label>
+                        <input type="number" id="vtr-km-inicial" placeholder="KM Inicial" min="0" inputmode="numeric" pattern="[0-9]*">
+                    </div>
+                    <div class="input-group">
+                        <label for="vtr-data-inicial" class="sr-only">Data</label>
+                        <input type="date" id="vtr-data-inicial">
+                        <label for="vtr-hora-inicial" class="sr-only">Hora Inicial</label>
+                        <input type="time" id="vtr-hora-inicial">
+                        <button class="send-btn" id="btn-abrir-km" title="Abrir KM">&#10148;</button>
+                    </div>
+                </div>
+            </footer>
+        </div>
+
+        <!-- ==================== TELA OCORRÊNCIAS ==================== -->
+        <div id="tela-conversa-ocorrencia" class="screen hidden">
+            <header class="chat-header">
+                <button class="back-btn" onclick="voltarParaInicio()">
+                <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+                </button>
+                <div class="avatar small">📝</div>
+                <h2>OCORRÊNCIAS</h2>
+            </header>
+            <div class="search-container">
+                <div class="search-bar">
+                    <span class="search-icon">🔍</span>
+                    <label for="input-pesquisa-ocorrencia" class="sr-only">Pesquisar ocorrência</label>
+                    <input type="text" id="input-pesquisa-ocorrencia" placeholder="Pesquisar ocorrência...">
+                </div>
+                <div class="filter-chips ocorrencia-filtros" aria-label="Filtros de ocorrências">
+                    <button type="button" class="filter-chip ativo" data-oc-filtro="todos" onclick="definirFiltroOcorrencias('todos')">TODAS <span id="oc-count-todos">(0)</span></button>
+                    <button type="button" class="filter-chip" data-oc-filtro="abertas" onclick="definirFiltroOcorrencias('abertas')">ABERTAS <span id="oc-count-abertas">(0)</span></button>
+                    <button type="button" class="filter-chip" data-oc-filtro="minhas" onclick="definirFiltroOcorrencias('minhas')">MINHAS <span id="oc-count-minhas">(0)</span></button>
+                </div>
+            </div>
+            <div class="messages-container" id="container-msgs-ocorrencia"></div>
+            <div id="erro-ocorrencia" class="erro-inline hidden"></div>
+            <footer class="chat-input-area">
+                <div class="input-group">
+                    <button id="btn-toggle-form-oc" class="btn-toggle-form" onclick="toggleFormOcorrencia()">＋ NOVA OCORRÊNCIA</button>
+                </div>
+                <div id="oc-form-fields" class="hidden">
+                    <div class="input-group">
+                        <label for="oc-select-codigo" class="sr-only">Código</label>
+                        <select id="oc-select-codigo"><option value="">Código...</option></select>
+                    </div>
+                    <div id="oc-row-codigo-outro" class="input-group hidden">
+                        <input type="text" id="oc-input-codigo-outro" placeholder="Digite o Código">
+                    </div>
+                    <div class="input-group">
+                        <label for="oc-select-setor" class="sr-only">Local</label>
+                        <select id="oc-select-setor"><option value="">Local...</option></select>
+                    </div>
+                    <div id="oc-row-setor-outro" class="input-group hidden">
+                        <input type="text" id="oc-input-setor-outro" placeholder="Digite o Local">
+                    </div>
+                    <div class="input-group">
+                        <label for="oc-select-vtr" class="sr-only">Viatura</label>
+                        <select id="oc-select-vtr"><option value="">Viatura...</option></select>
+                    </div>
+                    <div id="oc-row-vtr-outro" class="input-group hidden">
+                        <input type="text" id="oc-input-vtr-outro" placeholder="Digite a Viatura">
+                    </div>
+                    <div class="input-group">
+                        <label for="oc-select-condutor" class="sr-only">Condutor</label>
+                        <select id="oc-select-condutor"><option value="">Condutor...</option></select>
+                        <label for="oc-select-apoio" class="sr-only">Apoio</label>
+                        <select id="oc-select-apoio"><option value="">Apoio (opcional)...</option></select>
+                    </div>
+                    <div id="oc-row-condutor-outro" class="input-group hidden">
+                        <input type="text" id="oc-input-condutor-outro" placeholder="Digite o Condutor">
+                    </div>
+                    <div id="oc-row-apoio-outro" class="input-group hidden">
+                        <input type="text" id="oc-input-apoio-outro" placeholder="Digite o Apoio">
+                    </div>
+                    <div class="input-group">
+                        <label for="oc-data" class="sr-only">Data</label>
+                        <input type="date" id="oc-data">
+                        <label for="oc-hora" class="sr-only">Hora</label>
+                        <input type="time" id="oc-hora">
+                        <button class="send-btn" id="btn-abrir-ocorrencia" title="Registrar">&#10148;</button>
+                    </div>
+                </div>
+            </footer>
+            <!-- Input escondido para foto na lista -->
+            <input type="file" id="lista-foto-input" accept="image/*" multiple style="display:none">
+        </div>
+
+        <!-- ==================== TELA DETALHE OCORRÊNCIA ==================== -->
+        <div id="tela-detalhe-ocorrencia" class="screen hidden">
+            <header class="chat-header">
+                <button class="back-btn" onclick="voltarParaOcorrencias()">
+                <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+                </button>
+                <div class="avatar small">📝</div>
+                <div style="flex:1;">
+                    <h2 id="detalhe-titulo" style="font-size:15px;">Ocorrência</h2>
+                    <span id="detalhe-status-badge" class="status-badge status-aberta">● ABERTA</span>
+                </div>
+                <button id="btn-finalizar-oc-header" class="btn-action btn-close" style="font-size:12px;padding:6px 10px;" onclick="abrirModalEncerrarOcorrencia()">Encerrar</button>
+            </header>
+
+            <div class="detalhe-resumo">
+                <div class="resumo-linha"><span class="resumo-label">Nº Ocorrência:</span><span class="resumo-valor" id="d-numero">—</span></div>
+                <div class="resumo-linha"><span class="resumo-label">Código:</span><span class="resumo-valor" id="d-codigo">—</span></div>
+                <div class="resumo-linha"><span class="resumo-label">Local:</span><span class="resumo-valor" id="d-local">—</span></div>
+                <div class="resumo-linha"><span class="resumo-label">Viatura:</span><span class="resumo-valor" id="d-viatura">—</span></div>
+                <div class="resumo-linha"><span class="resumo-label">Condutor:</span><span class="resumo-valor" id="d-condutor">—</span></div>
+                <div class="resumo-linha"><span class="resumo-label">Apoio:</span><span class="resumo-valor" id="d-apoio">—</span></div>
+                <div class="resumo-linha"><span class="resumo-label">Data:</span><span class="resumo-valor" id="d-data">—</span></div>
+                <div class="resumo-linha"><span class="resumo-label">Hora Inicial:</span><span class="resumo-valor" id="d-hora-inicial" style="display:inline;">—</span></div>
+                <div id="d-row-hora-final" class="resumo-linha" style="display:none;">
+                    <span class="resumo-label">Hora Final:</span><span class="resumo-valor" id="d-hora-final">—</span>
+                </div>
+            </div>
+
+            <div class="messages-container" id="container-msgs-detalhe">
+                <div class="message system-msg">Nenhuma observação ainda. Use o formulário abaixo.</div>
+            </div>
+
+            <div id="erro-detalhe" class="erro-inline hidden"></div>
+
+            <div id="painel-acoes-detalhe" class="chat-input-area">
+                <div class="input-group">
+                    <textarea id="detalhe-observacao" placeholder="Observação..." rows="2"
+                        style="flex:1; resize:none; padding:10px; border-radius:12px; border:none;
+                               background-color:var(--bg-input); color:var(--text-primary);
+                               font-size:14px; font-family:inherit; outline:none;"></textarea>
+                </div>
+                <div class="input-group" style="align-items:center;">
+                    <label class="btn-foto" title="Tirar ou Anexar Foto">
+                        📷
+                        <input type="file" id="detalhe-foto" accept="image/*" multiple style="display:none">
+                    </label>
+                    <div id="foto-preview-container" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;flex:1;"></div>
+                    <input type="time" id="detalhe-hora-final" style="width:110px; flex:none;" title="Hora Final (opcional)">
+                    <button class="send-btn" id="btn-salvar-observacao" title="Salvar">➤</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ==================== TELA RELATÓRIOS ==================== -->
+        <div id="tela-conversa-relatorio" class="screen hidden">
+            <header class="chat-header">
+                <button class="back-btn" onclick="voltarParaInicio()">
+                <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+                </button>
+                <div class="avatar small">📋</div>
+                <h2>RELATÓRIOS</h2>
+            </header>
+            <div class="search-container">
+                <div class="search-bar">
+                    <span class="search-icon">🔍</span>
+                    <label for="input-pesquisa-relatorio" class="sr-only">Pesquisar relatório</label>
+                    <input type="text" id="input-pesquisa-relatorio" placeholder="Pesquisar relatório...">
+                </div>
+            </div>
+            <div class="messages-container" id="container-msgs-relatorio"></div>
+            <div id="erro-relatorio" class="erro-inline hidden"></div>
+            <footer class="chat-input-area" style="position:relative;">
+                <!-- Dropdown menu -->
+                <div id="menu-novo-relatorio" class="hidden" style="
+                    position:absolute; bottom:70px; left:10px; right:10px;
+                    background:var(--bg-panel); border-radius:12px;
+                    box-shadow:0 4px 20px rgba(0,0,0,0.4);
+                    overflow:hidden; z-index:50;
+                ">
+                    <div onclick="abrirFormularioSinistro()" style="
+                        padding:14px 18px; cursor:pointer; display:flex;
+                        align-items:center; gap:12px; border-bottom:1px solid var(--border-color);
+                        font-size:14px; color:var(--text-primary);
+                        transition:background 0.15s;
+                    " onmouseover="this.style.background='var(--bg-input)'" onmouseout="this.style.background=''">
+                        <span style="font-size:20px;">🚨</span>
+                        <div>
+                            <div style="font-weight:700;">Sinistro de Trânsito</div>
+                            <div style="font-size:11px;color:var(--text-secondary);">Relatório detalhado de acidente</div>
+                        </div>
+                    </div>
+                    <div onclick="abrirFormularioRemocao()" style="
+                        padding:14px 18px; cursor:pointer; display:flex;
+                        align-items:center; gap:12px; border-bottom:1px solid var(--border-color);
+                        font-size:14px; color:var(--text-primary);
+                        transition:background 0.15s;
+                    " onmouseover="this.style.background='var(--bg-input)'" onmouseout="this.style.background=''">
+                        <span style="font-size:20px;">🚧</span>
+                        <div>
+                            <div style="font-weight:700;">Relatório de Remoção</div>
+                            <div style="font-size:11px;color:var(--text-secondary);">Guincho, AIT e recolhimento</div>
+                        </div>
+                    </div>
+                    <div onclick="abrirFormularioRemocaoAbandono()" style="
+                        padding:14px 18px; cursor:pointer; display:flex;
+                        align-items:center; gap:12px; border-bottom:1px solid var(--border-color);
+                        font-size:14px; color:var(--text-primary);
+                        transition:background 0.15s;
+                    " onmouseover="this.style.background='var(--bg-input)'" onmouseout="this.style.background=''">
+                        <span style="font-size:20px;">🅿️</span>
+                        <div>
+                            <div style="font-weight:700;">Remoção por Abandono</div>
+                            <div style="font-size:11px;color:var(--text-secondary);">AIM, publicação e recolhimento</div>
+                        </div>
+                    </div>
+                    <div onclick="abrirFormularioRemocao279A()" style="
+                        padding:14px 18px; cursor:pointer; display:flex;
+                        align-items:center; gap:12px;
+                        font-size:14px; color:var(--text-primary);
+                        transition:background 0.15s;
+                    " onmouseover="this.style.background='var(--bg-input)'" onmouseout="this.style.background=''">
+                        <span style="font-size:20px;">⚖️</span>
+                        <div>
+                            <div style="font-weight:700;">Remoção Art. 279-A CTB</div>
+                            <div style="font-size:11px;color:var(--text-secondary);">AIT, pesquisa e recolhimento</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="input-group">
+                    <button class="btn-toggle-form" onclick="toggleMenuRelatorio()" style="width:100%;">＋ NOVO RELATÓRIO</button>
+                </div>
+            </footer>
+        </div>
+
+        <!-- ==================== MODAL SINISTRO DE TRÂNSITO ==================== -->
+        <div id="modal-sinistro" class="modal-overlay hidden" style="align-items:flex-start;padding-top:10px;overflow-y:auto;">
+            <div class="modal-card" style="max-width:460px;width:96%;margin:0 auto 20px;max-height:95vh;overflow-y:auto;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+                    <h3 style="color:var(--green-accent);">🚨 Sinistro de Trânsito</h3>
+                    <button class="btn-cancelar" style="padding:4px 10px;font-size:12px;" onclick="fecharModalSinistro()">✕ Fechar</button>
+                </div>
+
+                <!-- Indicador de edição -->
+                <div id="sin-edit-indicator" class="hidden" style="
+                    margin-bottom:10px;padding:8px 12px;background:rgba(0,168,132,0.1);
+                    border:1px solid rgba(0,168,132,0.3);border-radius:8px;
+                    font-size:12px;font-weight:700;color:var(--green-accent);">
+                    ✏️ Editando Registro
+                </div>
+
+                <div id="erro-modal-sinistro" class="erro-inline hidden" style="margin-bottom:10px;"></div>
+
+                <div class="modal-body" style="gap:12px;">
+
+                    <!-- DATA / HORA / NÚMERO -->
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+                        <div>
+                            <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px;">DATA</label>
+                            <input type="date" id="sin-data" style="width:100%;padding:10px;border-radius:10px;border:none;background:var(--bg-input);color:var(--text-primary);font-size:14px;">
+                        </div>
+                        <div>
+                            <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px;">HORA</label>
+                            <input type="time" id="sin-hora" style="width:100%;padding:10px;border-radius:10px;border:none;background:var(--bg-input);color:var(--text-primary);font-size:14px;">
+                        </div>
+                    </div>
+
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+                        <div>
+                            <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px;">Nº OCORRÊNCIA</label>
+                            <input type="text" id="sin-numero" placeholder="Ex: 123/2025" style="width:100%;padding:10px;border-radius:10px;border:none;background:var(--bg-input);color:var(--text-primary);font-size:14px;">
+                        </div>
+                        <div>
+                            <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px;">ORIGEM</label>
+                            <select id="sin-origem" onchange="toggleSinistroOrigemCustom()" style="width:100%;padding:10px;border-radius:10px;border:none;background:var(--bg-input);color:var(--text-primary);font-size:14px;">
+                                <option value="">Selecionar...</option>
+                                <option value="Fiscalização de rotina">Fiscalização de rotina</option>
+                                <option value="COTRAN">COTRAN</option>
+                                <option value="COI">COI</option>
+                                <option value="CECOM">CECOM</option>
+                                <option value="Solicitação de munícipe">Solicitação de munícipe</option>
+                                <option value="Outros">Outro</option>
+                            </select>
+                            <div id="sin-origem-custom-container" class="hidden" style="margin-top:6px;">
+                                <input type="text" id="sin-origem-custom" placeholder="Especificar origem..." style="width:100%;padding:10px;border-radius:10px;border:none;background:var(--bg-input);color:var(--text-primary);font-size:14px;">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ENDEREÇO -->
+                    <div>
+                        <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px;">ENDEREÇO</label>
+                        <input type="text" id="sin-endereco" placeholder="Rua, Número, Bairro..." style="width:100%;padding:10px;border-radius:10px;border:none;background:var(--bg-input);color:var(--text-primary);font-size:14px;">
+                    </div>
+
+                    <!-- CARACTERÍSTICA -->
+                    <div>
+                        <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px;">CARACTERÍSTICA DO SINISTRO</label>
+                        <select id="sin-caracteristica" onchange="toggleVitimaFieldsSin()" style="width:100%;padding:10px;border-radius:10px;border:none;background:var(--bg-input);color:var(--text-primary);font-size:14px;">
+                            <option value="">Selecionar...</option>
+                            <option value="Com vítima">Com vítima</option>
+                            <option value="Sem vítima">Sem vítima</option>
+                            <option value="Sem Informação">Sem Informação</option>
+                        </select>
+                    </div>
+
+                    <!-- VÍTIMAS -->
+                    <div id="sin-vitimas-section" class="hidden" style="background:var(--bg-input);border-radius:12px;padding:12px;">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                            <span style="font-size:11px;font-weight:700;color:var(--text-secondary);">VÍTIMAS</span>
+                            <button class="btn-action" style="padding:4px 10px;font-size:11px;" onclick="addVitimaSin()">+ Adicionar Vítima</button>
+                        </div>
+                        <div id="sin-vitimas-container"></div>
+                    </div>
+
+                    <!-- ENVOLVIDOS -->
+                    <div style="background:var(--bg-input);border-radius:12px;padding:12px;">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                            <label style="font-size:11px;color:var(--text-secondary);font-weight:700;">ENVOLVIDOS / VEÍCULOS</label>
+                            <button class="btn-action" style="padding:4px 10px;font-size:11px;" onclick="addEnvolvidoSin()">+ Adicionar</button>
+                        </div>
+                        <div id="sin-envolvidos-container"></div>
+                    </div>
+
+                    <!-- SOCORRO MÉDICO -->
+                    <div style="background:var(--bg-input);border-radius:12px;padding:12px;">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                            <label style="font-size:11px;color:var(--text-secondary);font-weight:700;">SOCORRO MÉDICO</label>
+                            <button class="btn-action" style="padding:4px 10px;font-size:11px;" onclick="addSocorroSin()">+ Adicionar</button>
+                        </div>
+                        <div id="sin-socorro-container"></div>
+                    </div>
+
+                    <!-- APOIO POLICIAL -->
+                    <div style="background:var(--bg-input);border-radius:12px;padding:12px;">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                            <label style="font-size:11px;color:var(--text-secondary);font-weight:700;">APOIO POLICIAL</label>
+                            <button class="btn-action" style="padding:4px 10px;font-size:11px;" onclick="addApoioSin()">+ Adicionar</button>
+                        </div>
+                        <div id="sin-apoio-container"></div>
+                    </div>
+
+                    <!-- RESUMO DOS FATOS -->
+                    <div>
+                        <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px;">RESUMO DOS FATOS</label>
+                        <textarea id="sin-resumo" rows="3" placeholder="Descreva os detalhes do sinistro..." style="width:100%;padding:10px;border-radius:10px;border:none;background:var(--bg-input);color:var(--text-primary);font-size:14px;resize:none;font-family:inherit;outline:none;"></textarea>
+                    </div>
+
+                    <!-- AGENTES ENVOLVIDOS -->
+                    <div style="background:var(--bg-input);border-radius:12px;padding:12px;">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                            <label style="font-size:11px;font-weight:700;color:var(--text-secondary);">AGENTES ENVOLVIDOS</label>
+                            <button class="btn-action" style="padding:4px 10px;font-size:11px;" onclick="addAgenteSin()">+ Adicionar Agente</button>
+                        </div>
+                        <div id="sin-agentes-container"></div>
+                    </div>
+
+                    <!-- VTRs -->
+                    <div style="background:var(--bg-input);border-radius:12px;padding:12px;">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                            <label style="font-size:11px;font-weight:700;color:var(--text-secondary);">VIATURAS (VTRs)</label>
+                            <button class="btn-action" style="padding:4px 10px;font-size:11px;" onclick="addVtrSin()">+ Adicionar VTR</button>
+                        </div>
+                        <div id="sin-vtrs-container"></div>
+                    </div>
+
+                    <!-- SUPERVISÃO / RESPONSÁVEL -->
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+                        <div>
+                            <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px;">SUPERVISÃO</label>
+                            <input type="text" id="sin-supervisao" style="width:100%;padding:10px;border-radius:10px;border:none;background:var(--bg-input);color:var(--text-primary);font-size:14px;">
+                        </div>
+                        <div>
+                            <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px;">RESPONSÁVEL PELO RELATÓRIO</label>
+                            <select id="sin-responsavel-select" style="width:100%;padding:10px;border-radius:10px;border:none;background:var(--bg-input);color:var(--text-primary);font-size:14px;">
+                                <option value="">Selecionar...</option>
+                                <option value="Outros">Outros</option>
+                            </select>
+                            <input type="text" id="sin-responsavel-custom" class="hidden" placeholder="Nome do responsável..." style="margin-top:6px;width:100%;padding:10px;border-radius:10px;border:none;background:var(--bg-input);color:var(--text-primary);font-size:14px;">
+                        </div>
+                    </div>
+
+                    <!-- MATRÍCULA / DATA RELATÓRIO -->
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+                        <div>
+                            <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px;">MATRÍCULA</label>
+                            <input type="text" id="sin-matricula" style="width:100%;padding:10px;border-radius:10px;border:none;background:var(--bg-input);color:var(--text-primary);font-size:14px;">
+                        </div>
+                        <div>
+                            <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px;">DATA DO RELATÓRIO</label>
+                            <input type="date" id="sin-data-relatorio" style="width:100%;padding:10px;border-radius:10px;border:none;background:var(--bg-input);color:var(--text-primary);font-size:14px;">
+                        </div>
+                    </div>
+
+                    <!-- FOTOS -->
+                    <div style="background:var(--bg-input);border-radius:12px;padding:12px;">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                            <label style="font-size:11px;font-weight:700;color:var(--text-secondary);">FOTOS DO SINISTRO</label>
+                            <label class="btn-action" style="cursor:pointer;padding:4px 10px;font-size:11px;">
+                                📷 Anexar Fotos
+                                <input type="file" id="sin-foto-input" accept="image/*" multiple style="display:none;">
+                            </label>
+                        </div>
+                        <div id="sin-fotos-container" style="display:flex;gap:6px;flex-wrap:wrap;"></div>
+                    </div>
+
+                </div><!-- /modal-body -->
+
+                <div class="modal-footer" style="margin-top:20px;">
+                    <button class="btn-cancelar" onclick="fecharModalSinistro()">Cancelar</button>
+                    <button class="btn-salvar" id="btn-salvar-sinistro" onclick="salvarSinistro()">💾 Salvar Relatório</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ==================== MODAL EDITAR VIATURA ==================== -->
+        <div id="modal-editar" class="modal-overlay hidden">
+            <div class="modal-card">
+                <h3>Editar Registro</h3>
+                <div id="erro-modal-editar" class="erro-inline hidden"></div>
+                <div class="modal-body">
+                    <label for="edit-prefixo">Viatura:</label>
+                    <select id="edit-prefixo"></select>
+                    <input type="text" id="edit-prefixo-outro" class="hidden" placeholder="Digite a Viatura">
+                    <label for="edit-condutor">Condutor (DET):</label>
+                    <select id="edit-condutor"></select>
+                    <input type="text" id="edit-condutor-outro" class="hidden" placeholder="Digite o Condutor">
+                    <label for="edit-apoio">Apoio (DET):</label>
+                    <select id="edit-apoio"></select>
+                    <input type="text" id="edit-apoio-outro" class="hidden" placeholder="Digite o Apoio">
+                    <label for="edit-km">KM Inicial:</label>
+                    <input type="number" id="edit-km" min="0" inputmode="numeric" pattern="[0-9]*">
+                    <label for="edit-hora">Hora Inicial:</label>
+                    <input type="time" id="edit-hora">
+                    <div id="row-edit-final" class="hidden">
+                        <label for="edit-km-final">KM Final:</label>
+                        <input type="number" id="edit-km-final" min="0" inputmode="numeric" pattern="[0-9]*">
+                        <label for="edit-hora-final">Hora Final:</label>
+                        <input type="time" id="edit-hora-final">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn-cancelar" onclick="fecharModal('modal-editar')">Cancelar</button>
+                    <button class="btn-salvar" onclick="confirmarEdicao()">Salvar Alterações</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ==================== MODAL EDITAR OCORRÊNCIA ==================== -->
+        <div id="modal-editar-oc" class="modal-overlay hidden">
+            <div class="modal-card">
+                <h3>Editar Ocorrência</h3>
+                <div id="erro-modal-editar-oc" class="erro-inline hidden"></div>
+                <div class="modal-body">
+                    <label for="oc-edit-codigo">Código:</label>
+                    <select id="oc-edit-codigo"></select>
+                    <label for="oc-edit-setor">Local:</label>
+                    <select id="oc-edit-setor"></select>
+                    <input type="text" id="oc-edit-local-outro" class="hidden" placeholder="Digite o Local">
+                    <label for="oc-edit-viatura">Viatura:</label>
+                    <select id="oc-edit-viatura"></select>
+                    <input type="text" id="oc-edit-viatura-outro" class="hidden" placeholder="Digite a Viatura">
+                    <label for="oc-edit-condutor">Condutor:</label>
+                    <select id="oc-edit-condutor"></select>
+                    <label for="oc-edit-apoio">Apoio:</label>
+                    <select id="oc-edit-apoio"></select>
+                    <label for="oc-edit-hora">Hora Inicial:</label>
+                    <input type="time" id="oc-edit-hora">
+                    <div id="oc-row-edit-final" class="hidden">
+                        <label for="oc-edit-hora-final">Hora Final:</label>
+                        <input type="time" id="oc-edit-hora-final">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn-cancelar" onclick="fecharModal('modal-editar-oc')">Cancelar</button>
+                    <button class="btn-salvar" onclick="confirmarEdicaoOcorrencia()">Salvar Alterações</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ==================== MODAL FECHAR KM ==================== -->
+        <div id="modal-fechar" class="modal-overlay hidden">
+            <div class="modal-card">
+                <h3>Encerrar Serviço</h3>
+                <div id="erro-modal-fechar" class="erro-inline hidden"></div>
+                <div class="modal-body">
+                    <label for="fechar-km-final">KM Final:</label>
+                    <input type="number" id="fechar-km-final" placeholder="00000" min="0" inputmode="numeric" pattern="[0-9]*">
+                    <label for="fechar-hora-final">Hora de Término:</label>
+                    <input type="time" id="fechar-hora-final">
+                </div>
+                <div class="modal-footer">
+                    <button class="btn-cancelar" onclick="fecharModal('modal-fechar')">Cancelar</button>
+                    <button class="btn-salvar" onclick="confirmarFechamento()">Encerrar KM</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ==================== MODAL ENCERRAR OCORRÊNCIA ==================== -->
+        <div id="modal-encerrar-oc" class="modal-overlay hidden">
+            <div class="modal-card">
+                <h3>Encerrar Ocorrência</h3>
+                <div id="erro-modal-encerrar-oc" class="erro-inline hidden"></div>
+                <div class="modal-body">
+                    <label for="encerrar-oc-hora-final">Hora de Término:</label>
+                    <input type="time" id="encerrar-oc-hora-final">
+                </div>
+                <div class="modal-footer">
+                    <button class="btn-cancelar" onclick="fecharModal('modal-encerrar-oc')">Cancelar</button>
+                    <button class="btn-salvar" onclick="confirmarEncerramentoOcorrencia()">Encerrar Ocorrência</button>
+                </div>
+            </div>
+        </div>
+
+    </div><!-- /app-container -->
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="config.js"></script>
+    <script src="app.js"></script>
+    <script src="auth.js"></script>
+    <script src="viatura.js"></script>
+    <script src="ocorrencia.js"></script>
+    <script src="relatorio.js"></script>
+</body>
+</html>
