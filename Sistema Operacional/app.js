@@ -23,6 +23,7 @@ const containerMensagensVtr = document.getElementById('container-msgs-viatura');
 // Ocorrência (formulário)
 const ocSelectCodigo     = document.getElementById('oc-select-codigo');
 const ocSelectSetor      = document.getElementById('oc-select-setor');
+const ocSugestoesSetor   = document.getElementById('oc-sugestoes-setor');
 const ocSelectVtr        = document.getElementById('oc-select-vtr');
 const ocSelectCondutor   = document.getElementById('oc-select-condutor');
 const ocSelectApoio      = document.getElementById('oc-select-apoio');
@@ -45,6 +46,8 @@ let agenteLogado      = null;
 let ocorrenciaAtual   = null;
 let fotosSelecionadas = [];
 let filtroOcorrenciaAtual = 'todos';
+let listaSetoresOcorrencia = [];
+let indiceSugestaoSetor = -1;
 
 // ==========================================
 // FUNÇÕES DE APOIO
@@ -115,6 +118,130 @@ function ocorrenciaEhDoAgenteLogado(ocorrencia) {
         return (condutor && (condutor.includes(ag) || ag.includes(condutor)))
             || (apoio && (apoio.includes(ag) || ag.includes(apoio)));
     });
+}
+
+function normalizarBusca(texto) {
+    return String(texto || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .trim();
+}
+
+function ocultarSugestoesSetor() {
+    if (!ocSugestoesSetor) return;
+    ocSugestoesSetor.classList.add('hidden');
+    ocSugestoesSetor.innerHTML = '';
+    indiceSugestaoSetor = -1;
+}
+
+function selecionarSugestaoSetor(nome) {
+    if (!ocSelectSetor) return;
+    ocSelectSetor.value = nome;
+    ocultarSugestoesSetor();
+}
+
+function renderizarSugestoesSetor() {
+    if (!ocSelectSetor || !ocSugestoesSetor) return;
+
+    const termo = normalizarBusca(ocSelectSetor.value);
+    if (termo.length < 2) {
+        ocultarSugestoesSetor();
+        return;
+    }
+
+    const resultados = listaSetoresOcorrencia
+        .filter(nome => normalizarBusca(nome).includes(termo))
+        .slice(0, 12);
+
+    if (!resultados.length) {
+        ocultarSugestoesSetor();
+        return;
+    }
+
+    ocSugestoesSetor.innerHTML = resultados.map((nome, index) =>
+        `<button type="button" class="autocomplete-item${index === indiceSugestaoSetor ? ' ativo' : ''}" data-local="${escapeHTML(nome)}">${escapeHTML(nome)}</button>`
+    ).join('');
+    ocSugestoesSetor.classList.remove('hidden');
+}
+
+function configurarAutocompleteSetor() {
+    if (!ocSelectSetor || !ocSugestoesSetor) return;
+
+    ocSelectSetor.addEventListener('input', () => {
+        indiceSugestaoSetor = -1;
+        renderizarSugestoesSetor();
+    });
+
+    ocSelectSetor.addEventListener('focus', renderizarSugestoesSetor);
+
+    ocSelectSetor.addEventListener('keydown', event => {
+        const itens = Array.from(ocSugestoesSetor.querySelectorAll('.autocomplete-item'));
+        if (ocSugestoesSetor.classList.contains('hidden') || !itens.length) return;
+
+        if (event.key === 'ArrowDown') {
+            event.preventDefault();
+            indiceSugestaoSetor = (indiceSugestaoSetor + 1) % itens.length;
+            renderizarSugestoesSetor();
+        } else if (event.key === 'ArrowUp') {
+            event.preventDefault();
+            indiceSugestaoSetor = (indiceSugestaoSetor - 1 + itens.length) % itens.length;
+            renderizarSugestoesSetor();
+        } else if (event.key === 'Enter' && indiceSugestaoSetor >= 0) {
+            event.preventDefault();
+            selecionarSugestaoSetor(itens[indiceSugestaoSetor].dataset.local);
+        } else if (event.key === 'Escape') {
+            ocultarSugestoesSetor();
+        }
+    });
+
+    ocSugestoesSetor.addEventListener('mousedown', event => {
+        const item = event.target.closest('.autocomplete-item');
+        if (!item) return;
+        event.preventDefault();
+        selecionarSugestaoSetor(item.dataset.local);
+    });
+
+    document.addEventListener('click', event => {
+        if (event.target === ocSelectSetor || ocSugestoesSetor.contains(event.target)) return;
+        ocultarSugestoesSetor();
+    });
+}
+
+function definirListaSetoresOcorrencia(setores) {
+    const nomes = (setores || [])
+        .map(s => String(s.nome || '').trim())
+        .filter(Boolean);
+
+    const unicos = new Map();
+    nomes.forEach(nome => unicos.set(normalizarBusca(nome), nome));
+    listaSetoresOcorrencia = Array.from(unicos.values())
+        .sort((a, b) => a.localeCompare(b, 'pt-BR', { sensitivity: 'base' }));
+
+    renderizarSugestoesSetor();
+}
+
+async function carregarTodosSetores(colunas = 'id, nome') {
+    const pageSize = 1000;
+    let inicio = 0;
+    let todos = [];
+
+    while (true) {
+        const { data, error } = await db
+            .from('lista_setores')
+            .select(colunas)
+            .order('nome', { ascending: true })
+            .range(inicio, inicio + pageSize - 1);
+
+        if (error) return { data: todos, error };
+        const pagina = data || [];
+        todos = todos.concat(pagina);
+
+        if (pagina.length < pageSize) break;
+        inicio += pageSize;
+    }
+
+    return { data: todos, error: null };
 }
 
 function podeAlterarOcorrencia(ocorrencia) {
@@ -362,6 +489,8 @@ btnEntrarOcorrencia.addEventListener('click', async () => {
         }
     }
 });
+
+configurarAutocompleteSetor();
 
 window.voltarParaInicio = function () {
     [vtrSelectCondutor, vtrSelectApoio, ocSelectVtr, ocSelectCondutor].forEach(s => {
@@ -623,7 +752,7 @@ async function carregarListas() {
         db.from('frota').select('*').order('prefixo', { ascending: true }),
         db.from('funcionarios').select('*').order('det_codigo', { ascending: true }),
         db.from('lista_codigos').select('*').order('id', { ascending: true }),
-        db.from('lista_setores').select('*'),
+        carregarTodosSetores('id, nome'),
     ]);
 
     if (errVtr)    console.error("Erro ao carregar frota:", errVtr);
@@ -644,10 +773,11 @@ async function carregarListas() {
     reset(editCondutor,      'Condutor...');
     reset(editApoio,         'Apoio...');
     reset(ocSelectCodigo,    'Código...');
-    reset(ocSelectSetor,     'Local...');
     reset(ocSelectVtr,       'Viatura...');
     reset(ocSelectCondutor,  'Condutor...');
     reset(ocSelectApoio,     'Apoio (opcional)...');
+    if (ocSelectSetor) ocSelectSetor.value = '';
+    ocultarSugestoesSetor();
 
     if (vtrs && !errVtr) {
         vtrs.forEach(vtr => {
@@ -696,13 +826,11 @@ async function carregarListas() {
 
     if (setores && !errSetor) {
         console.log(`✅ lista_setores carregada: ${setores.length} registros`, setores);
+        definirListaSetoresOcorrencia(setores);
 
         setores.forEach(s => {
             const nome = escapeHTML(s.nome);
             const html = `<option value="${nome}">${nome}</option>`;
-            [ocSelectSetor].forEach(sel => {
-                if (sel) sel.insertAdjacentHTML('beforeend', html);
-            });
             const ss = document.getElementById('oc-edit-setor');
             if (ss) ss.insertAdjacentHTML('beforeend', `<option value="${nome}">${nome}</option>`);
             const ss2 = document.getElementById('edit-setor');
@@ -726,7 +854,6 @@ async function carregarListas() {
         ['vtr-select-condutor', 'vtr-input-condutor-outro',   'row-condutor-outro'],
         ['vtr-select-apoio',    'vtr-input-apoio-outro',      'row-apoio-outro'],
         ['oc-select-codigo',    'oc-input-codigo-outro',      'oc-row-codigo-outro'],
-        ['oc-select-setor',     'oc-input-setor-outro',       'oc-row-setor-outro'],
         ['oc-select-vtr',       'oc-input-vtr-outro',         'oc-row-vtr-outro'],
         ['oc-select-condutor',  'oc-input-condutor-outro',    'oc-row-condutor-outro'],
         ['oc-select-apoio',     'oc-input-apoio-outro',       'oc-row-apoio-outro'],
@@ -766,7 +893,7 @@ async function carregarListas() {
 
 async function carregarCodigosESetores() {
     const jaTemCodigos = ocSelectCodigo.options.length > 1;
-    const jaTemSetores = ocSelectSetor.options.length > 1;
+    const jaTemSetores = listaSetoresOcorrencia.length > 0;
     if (jaTemCodigos && jaTemSetores) return;
 
     console.log('🔄 Recarregando códigos e setores...');
@@ -776,7 +903,7 @@ async function carregarCodigosESetores() {
         { data: setores, error: errSetor  }
     ] = await Promise.all([
         db.from('lista_codigos').select('id, descricao').order('id', { ascending: true }),
-        db.from('lista_setores').select('id, nome'),
+        carregarTodosSetores('id, nome'),
     ]);
 
     if (errCodigo) console.error('❌ lista_codigos:', errCodigo);
@@ -792,13 +919,9 @@ async function carregarCodigosESetores() {
         mostrarNotificacao('erro-ocorrencia', '⚠️ Erro ao carregar códigos: ' + errCodigo.message);
     }
 
-    if (setores && !errSetor && ocSelectSetor.options.length <= 1) {
+    if (setores && !errSetor && listaSetoresOcorrencia.length === 0) {
         console.log(`✅ Setores carregados: ${setores.length}`);
-
-        setores.forEach(s =>
-            ocSelectSetor.insertAdjacentHTML('beforeend',
-                `<option value="${escapeHTML(s.nome)}">${escapeHTML(s.nome)}</option>`)
-        );
+        definirListaSetoresOcorrencia(setores);
     } else if (errSetor) {
         mostrarNotificacao('erro-ocorrencia', '⚠️ Erro ao carregar locais: ' + errSetor.message);
     }

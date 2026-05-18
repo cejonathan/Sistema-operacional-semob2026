@@ -191,9 +191,10 @@
                     <div id="oc-row-codigo-outro" class="input-group hidden">
                         <input type="text" id="oc-input-codigo-outro" placeholder="Digite o Código">
                     </div>
-                    <div class="input-group">
+                    <div class="input-group local-autocomplete">
                         <label for="oc-select-setor" class="sr-only">Local</label>
-                        <select id="oc-select-setor"><option value="">Local...</option></select>
+                        <input type="text" id="oc-select-setor" placeholder="Local..." autocomplete="off">
+                        <div id="oc-sugestoes-setor" class="autocomplete-list hidden"></div>
                     </div>
                     <div id="oc-row-setor-outro" class="input-group hidden">
                         <input type="text" id="oc-input-setor-outro" placeholder="Digite o Local">
