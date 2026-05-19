@@ -22,6 +22,27 @@ let art279AgentesCount  = 0;
 let art279VtrsCount     = 0;
 let art279FotosSelecionadas = [];
 
+function calcularDimensoesFotoPDF(src, maxW, maxH) {
+    return new Promise(resolve => {
+        const img = new Image();
+        img.onload = () => {
+            const larguraNatural = img.naturalWidth || maxW;
+            const alturaNatural = img.naturalHeight || maxH;
+            const escala = Math.min(maxW / larguraNatural, maxH / alturaNatural);
+            const largura = larguraNatural * escala;
+            const altura = alturaNatural * escala;
+            resolve({
+                largura,
+                altura,
+                offsetX: (maxW - largura) / 2,
+                offsetY: (maxH - altura) / 2
+            });
+        };
+        img.onerror = () => resolve({ largura: maxW, altura: maxH, offsetX: 0, offsetY: 0 });
+        img.src = src;
+    });
+}
+
 // VTR_CODES e DET_CODES vêm de carregarListas() e são os mesmos do app
 // Serão populados via populateRelatorioSelects()
 
@@ -2490,19 +2511,19 @@ window.gerarPDFRelatorio = async function (id) {
         if (reg.socorro && reg.socorro.length > 0) {
             reg.socorro.forEach((s) => {
                 startYBorda = checkPageBreak(8, startYBorda);
-                const tipo = (s.tipo || '').replace(/ 🚑| 🚒| 🚨/g,'').trim();
+                const tipo = (s.tipo || 'SEM INFORMAÇÃO').replace(/ 🚑| 🚒| 🚨/g,'').trim() || 'SEM INFORMAÇÃO';
                 const semDetalhes = ['Recusou', 'Sem Necessidade', 'Sem Informação'].includes(tipo);
                 if (semDetalhes) {
                     doc.text(`• ${tipo}`, margemX + 3, posY);
                 } else {
-                    const vtr  = s.prefixo     ? `VTR: ${s.prefixo}` : 'VTR: —';
-                    const resp = s.responsavel ? `RESP: ${s.responsavel}` : 'RESP: —';
+                    const vtr  = `VTR: ${s.prefixo || 'SEM INFORMAÇÃO'}`;
+                    const resp = `RESP: ${s.responsavel || 'SEM INFORMAÇÃO'}`;
                     doc.text(`• ${tipo} | ${vtr} | ${resp}`, margemX + 3, posY);
                 }
                 posY += 5;
             });
         } else {
-             doc.text("•", margemX + 3, posY);
+             doc.text("• SEM INFORMAÇÃO", margemX + 3, posY);
              posY += 5;
         }
         posY += 1;
@@ -2517,20 +2538,20 @@ window.gerarPDFRelatorio = async function (id) {
         if (reg.apoio && reg.apoio.length > 0) {
             reg.apoio.forEach((a) => {
                 startYBorda = checkPageBreak(8, startYBorda);
-                const tipo = (a.tipo || '').replace('Polícia Militar 🚓','PM').replace('Polícia Civil 🚓','PC')
+                const tipo = (a.tipo || 'SEM INFORMAÇÃO').replace('Polícia Militar 🚓','PM').replace('Polícia Civil 🚓','PC')
                     .replace('Polícia Rodoviária Estadual 🚓','PRE').replace('Polícia Rodoviária Federal 🚓','PRF')
-                    .replace('GCM 🚓','GCM').replace(/ 🚓| 🚒| 🚑| 🚨/g,'').trim();
+                    .replace('GCM 🚓','GCM').replace(/ 🚓| 🚒| 🚑| 🚨/g,'').trim() || 'SEM INFORMAÇÃO';
                 if (tipo === 'Sem Informação') {
                     doc.text(`• ${tipo}`, margemX + 3, posY);
                 } else {
-                    const vtr  = a.prefixo     ? ` | VTR: ${a.prefixo}` : '';
-                    const resp = a.responsavel ? ` | RESP: ${a.responsavel}` : ' | RESP:';
+                    const vtr  = ` | VTR: ${a.prefixo || 'SEM INFORMAÇÃO'}`;
+                    const resp = ` | RESP: ${a.responsavel || 'SEM INFORMAÇÃO'}`;
                     doc.text(`• ${tipo}${vtr}${resp}`, margemX + 3, posY);
                 }
                 posY += 5;
             });
         } else {
-            doc.text("• | VTR: | RESP:", margemX + 3, posY);
+            doc.text("• SEM INFORMAÇÃO | VTR: SEM INFORMAÇÃO | RESP: SEM INFORMAÇÃO", margemX + 3, posY);
             posY += 5;
         }
         posY += 1;
@@ -2568,8 +2589,9 @@ window.gerarPDFRelatorio = async function (id) {
             for (let i = 0; i < fotos.length; i++) {
                 startYBorda = checkPageBreak(imgHeight + 10, startYBorda);
                 const b64 = await urlToBase64(fotos[i]);
+                const dimFoto = await calcularDimensoesFotoPDF(b64, imgWidth, imgHeight);
                 try {
-                    doc.addImage(b64, 'JPEG', imgX, posY, imgWidth, imgHeight);
+                    doc.addImage(b64, 'JPEG', imgX + dimFoto.offsetX, posY + dimFoto.offsetY, dimFoto.largura, dimFoto.altura);
                 } catch(e) {
                     console.error("Erro injetando a foto", e);
                 }
@@ -2867,8 +2889,9 @@ window.gerarPDFRemocao = async function (id) {
             for (let i = 0; i < fotos.length; i++) {
                 checkPageBreak(imgHeight + 10);
                 const b64 = await urlToBase64(fotos[i]);
+                const dimFoto = await calcularDimensoesFotoPDF(b64, imgWidth, imgHeight);
                 try {
-                    doc.addImage(b64, 'JPEG', imgX, posY, imgWidth, imgHeight);
+                    doc.addImage(b64, 'JPEG', imgX + dimFoto.offsetX, posY + dimFoto.offsetY, dimFoto.largura, dimFoto.altura);
                 } catch (e) {
                     console.error("Erro injetando a foto de remoção", e);
                 }
@@ -3131,8 +3154,9 @@ window.gerarPDFRemocaoAbandono = async function (id) {
             for (let i = 0; i < fotos.length; i++) {
                 checkPageBreak(imgHeight + 10);
                 const b64 = await urlToBase64(fotos[i]);
+                const dimFoto = await calcularDimensoesFotoPDF(b64, imgWidth, imgHeight);
                 try {
-                    doc.addImage(b64, 'JPEG', imgX, posY, imgWidth, imgHeight);
+                    doc.addImage(b64, 'JPEG', imgX + dimFoto.offsetX, posY + dimFoto.offsetY, dimFoto.largura, dimFoto.altura);
                 } catch (e) {
                     console.error("Erro injetando a foto de remoção por abandono", e);
                 }
@@ -3370,8 +3394,9 @@ window.gerarPDFRemocao279A = async function (id) {
             for (let i = 0; i < fotos.length; i++) {
                 checkPageBreak(imgHeight + 10);
                 const b64 = await urlToBase64(fotos[i]);
+                const dimFoto = await calcularDimensoesFotoPDF(b64, imgWidth, imgHeight);
                 try {
-                    doc.addImage(b64, 'JPEG', imgX, posY, imgWidth, imgHeight);
+                    doc.addImage(b64, 'JPEG', imgX + dimFoto.offsetX, posY + dimFoto.offsetY, dimFoto.largura, dimFoto.altura);
                 } catch (e) {
                     console.error("Erro injetando a foto de remoção 279-A", e);
                 }

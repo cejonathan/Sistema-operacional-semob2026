@@ -115,6 +115,12 @@ btnAbrirOcorrencia.addEventListener('click', async () => {
     try {
         const codigo   = getValorCampo('oc-select-codigo',   'oc-input-codigo-outro');
         const setor    = getValorCampo('oc-select-setor',    'oc-input-setor-outro');
+        const referencia = typeof obterReferenciaOcorrencia === 'function'
+            ? obterReferenciaOcorrencia()
+            : { tipo: '', detalhe: '' };
+        const localFinal = typeof montarLocalComReferencia === 'function'
+            ? montarLocalComReferencia(setor)
+            : setor;
         const viatura  = getValorCampo('oc-select-vtr',      'oc-input-vtr-outro');
         const condutor = getValorCampo('oc-select-condutor', 'oc-input-condutor-outro');
         const apoio    = getValorCampo('oc-select-apoio',    'oc-input-apoio-outro');
@@ -123,6 +129,9 @@ btnAbrirOcorrencia.addEventListener('click', async () => {
 
         if (!codigo)   return mostrarNotificacao('erro-ocorrencia', '⚠️ Selecione ou digite o Código.');
         if (!setor)    return mostrarNotificacao('erro-ocorrencia', '⚠️ Selecione ou digite o Local.');
+        if (referencia.tipo && !referencia.detalhe) {
+            return mostrarNotificacao('erro-ocorrencia', `⚠️ Informe o detalhe da referência ${referencia.tipo}.`);
+        }
         if (!viatura)  return mostrarNotificacao('erro-ocorrencia', '⚠️ Selecione ou digite a Viatura.');
         if (!condutor) return mostrarNotificacao('erro-ocorrencia', '⚠️ Selecione ou digite o Condutor.');
         if (!hora)     return mostrarNotificacao('erro-ocorrencia', '⚠️ Informe a Hora.');
@@ -162,7 +171,7 @@ btnAbrirOcorrencia.addEventListener('click', async () => {
             numero_ocorrencia:    numeroOcorrencia,
             seq_numero:           parseInt(numeroOcorrencia.split('/')[0]),
             codigo_descricao:     codigo,
-            local:                setor,
+            local:                localFinal,
             id_viatura_vinculada: viatura,
             condutor:             condutor,
             apoio:                apoio || null,
@@ -182,10 +191,10 @@ btnAbrirOcorrencia.addEventListener('click', async () => {
         renderizarMensagemOcorrencia(resultado[0], resultado[0].id);
         atualizarContadoresOcorrencias();
         ocSelectCodigo.value = ''; ocSelectSetor.value = '';
+        if (typeof limparReferenciaOcorrencia === 'function') limparReferenciaOcorrencia();
         ocSelectVtr.value    = ''; ocSelectCondutor.value = '';
         ocSelectApoio.value  = '';
         toggleFormOcorrencia();
-        abrirDetalheOcorrencia(resultado[0]);
     } finally {
         idSendoProcessado = false;
         btnAbrirOcorrencia.disabled = false;
@@ -208,6 +217,15 @@ function gerarHTMLMensagemOcorrencia(dados) {
     const hora      = dados.hora_inicial || '—';
     const dataRaw   = dados.data;
     const dataFmt   = dataRaw ? new Date(dataRaw + 'T00:00:00').toLocaleDateString('pt-BR') : '—';
+    const agentesAdicionais = Array.isArray(dados.agentes_adicionais)
+        ? dados.agentes_adicionais.filter(Boolean)
+        : [];
+    const agentesAdicionaisHTML = agentesAdicionais.length
+        ? `<div style="margin-bottom:6px;">
+                <div style="color:var(--text-secondary);font-size:11px;">AGENTES ADICIONAIS</div>
+                <div style="font-size:13px;">${escapeHTML(agentesAdicionais.join(', '))}</div>
+           </div>`
+        : '';
 
     const observacao = dados.observacao
         ? `<div style="margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,0.1);font-size:13px;">📝 ${escapeHTML(dados.observacao)}</div>`
@@ -239,6 +257,7 @@ function gerarHTMLMensagemOcorrencia(dados) {
         botoesOcorrencia = `<div class="message-actions">
             <button class="btn-action" onclick="event.stopPropagation(); adicionarObservacaoLista('${idBanco}')">📝 OBS</button>
             <button class="btn-action" onclick="event.stopPropagation(); adicionarFotoLista('${idBanco}')">📷 FOTO</button>
+            <button class="btn-action" onclick="event.stopPropagation(); abrirModalAgentesOcorrencia('${idBanco}')">👥 AGENTES</button>
             <button class="btn-action" onclick="event.stopPropagation(); abrirModalEditarOcorrencia('${idBanco}')">✏️ EDITAR</button>
             <button class="btn-action btn-close" onclick="event.stopPropagation(); encerrarOcorrencia('${idBanco}')">🏁 ENCERRAR</button>
         </div>`;
@@ -295,6 +314,7 @@ function gerarHTMLMensagemOcorrencia(dados) {
                 <div style="color:var(--text-secondary);font-size:11px;">DATA</div>
                 <div style="font-size:13px;">${dataFmt}</div>
             </div>
+            ${agentesAdicionaisHTML}
             ${observacao}${foto}
             ${botoesOcorrencia}
             <div style="border-top:1px solid rgba(255,255,255,0.1);margin-top:8px;padding-top:6px;display:flex;align-items:center;justify-content:flex-end;gap:5px;">
@@ -385,6 +405,63 @@ function isUnder24hOc(dados) {
     return ts !== null && (Date.now() - ts) <= 86400000;
 }
 
+function separarLocalReferenciaOcorrencia(localCompleto) {
+    const texto = String(localCompleto || '').trim();
+    const match = texto.match(/^(.*) - (Defronte|Oposto|Cruzamento)(?:\s+(.+))?$/);
+    if (!match) return { local: texto, referencia: '', detalhe: '' };
+
+    return {
+        local: match[1].trim(),
+        referencia: match[2],
+        detalhe: (match[3] || '').trim()
+    };
+}
+
+function atualizarCamposReferenciaEditOcorrencia() {
+    const tipo = document.getElementById('oc-edit-referencia')?.value || '';
+    const inputManual = document.getElementById('oc-edit-referencia-manual');
+    const selectCruzamento = document.getElementById('oc-edit-referencia-cruzamento');
+    const mostrarManual = tipo === 'Defronte' || tipo === 'Oposto';
+    const mostrarCruzamento = tipo === 'Cruzamento';
+
+    if (inputManual) {
+        inputManual.classList.toggle('hidden', !mostrarManual);
+        if (!mostrarManual) inputManual.value = '';
+    }
+
+    if (selectCruzamento) {
+        selectCruzamento.classList.toggle('hidden', !mostrarCruzamento);
+        if (!mostrarCruzamento) selectCruzamento.value = '';
+    }
+}
+
+function obterReferenciaEditOcorrencia() {
+    const tipo = document.getElementById('oc-edit-referencia')?.value || '';
+    if (!tipo) return { tipo: '', detalhe: '' };
+
+    if (tipo === 'Defronte' || tipo === 'Oposto') {
+        return {
+            tipo,
+            detalhe: (document.getElementById('oc-edit-referencia-manual')?.value || '').trim()
+        };
+    }
+
+    if (tipo === 'Cruzamento') {
+        return {
+            tipo,
+            detalhe: (document.getElementById('oc-edit-referencia-cruzamento')?.value || '').trim()
+        };
+    }
+
+    return { tipo: '', detalhe: '' };
+}
+
+function montarLocalEditComReferencia(local) {
+    const referencia = obterReferenciaEditOcorrencia();
+    if (!referencia.tipo) return local;
+    return `${local} - ${referencia.tipo} ${referencia.detalhe}`.trim();
+}
+
 // ==========================================
 // EDITAR OCORRÊNCIA (modal)
 // ==========================================
@@ -414,25 +491,44 @@ window.abrirModalEditarOcorrencia = async function (id) {
         rowFinal.classList.add('hidden');
     }
 
+    const localSeparado = separarLocalReferenciaOcorrencia(oc.local);
     const svLocal = document.getElementById('oc-edit-setor');
     const inpLocal = document.getElementById('oc-edit-local-outro');
-    if (svLocal && oc.local) {
-        const existe = [...svLocal.options].some(o => o.value === oc.local);
+    if (svLocal && localSeparado.local) {
+        const existe = [...svLocal.options].some(o => o.value === localSeparado.local);
         if (existe) {
-            svLocal.value = oc.local;
+            svLocal.value = localSeparado.local;
             if (inpLocal) { inpLocal.classList.add('hidden'); inpLocal.value = ''; }
         } else {
             const optOutro = [...svLocal.options].find(o => o.value === 'Outros' || o.value.toLowerCase().startsWith('outro'));
             if (optOutro) {
                 svLocal.value = optOutro.value;
-                if (inpLocal) { inpLocal.classList.remove('hidden'); inpLocal.value = oc.local; }
+                if (inpLocal) { inpLocal.classList.remove('hidden'); inpLocal.value = localSeparado.local; }
             } else {
                 svLocal.insertAdjacentHTML('beforeend', '<option value="Outros">Outros</option>');
                 svLocal.value = 'Outros';
-                if (inpLocal) { inpLocal.classList.remove('hidden'); inpLocal.value = oc.local; }
+                if (inpLocal) { inpLocal.classList.remove('hidden'); inpLocal.value = localSeparado.local; }
             }
         }
     }
+
+    const editRef = document.getElementById('oc-edit-referencia');
+    const editRefManual = document.getElementById('oc-edit-referencia-manual');
+    const editRefCruzamento = document.getElementById('oc-edit-referencia-cruzamento');
+    if (editRef) editRef.value = localSeparado.referencia || '';
+    if (editRefManual) editRefManual.value = (localSeparado.referencia === 'Defronte' || localSeparado.referencia === 'Oposto') ? localSeparado.detalhe : '';
+    if (editRefCruzamento) {
+        if (localSeparado.referencia === 'Cruzamento' && localSeparado.detalhe) {
+            const existeRef = [...editRefCruzamento.options].some(o => o.value === localSeparado.detalhe);
+            if (!existeRef) {
+                editRefCruzamento.insertAdjacentHTML('beforeend', `<option value="${escapeHTML(localSeparado.detalhe)}">${escapeHTML(localSeparado.detalhe)}</option>`);
+            }
+            editRefCruzamento.value = localSeparado.detalhe;
+        } else {
+            editRefCruzamento.value = '';
+        }
+    }
+    atualizarCamposReferenciaEditOcorrencia();
 
     const svVtr = document.getElementById('oc-edit-viatura');
     if (svVtr && oc.id_viatura_vinculada) {
@@ -468,6 +564,8 @@ document.getElementById('oc-edit-setor')?.addEventListener('change', function ()
     }
 });
 
+document.getElementById('oc-edit-referencia')?.addEventListener('change', atualizarCamposReferenciaEditOcorrencia);
+
 window.confirmarEdicaoOcorrencia = async function () {
     if (!ocorrenciaEditandoId) return;
 
@@ -489,6 +587,8 @@ window.confirmarEdicaoOcorrencia = async function () {
     const local    = (localSel === 'Outros' || localSel.toLowerCase().startsWith('outro'))
         ? document.getElementById('oc-edit-local-outro').value.trim()
         : localSel;
+    const referencia = obterReferenciaEditOcorrencia();
+    const localFinal = montarLocalEditComReferencia(local);
     const vtrSel   = document.getElementById('oc-edit-viatura').value;
     const viatura  = (vtrSel === 'outro' || vtrSel.toLowerCase().startsWith('outro'))
         ? document.getElementById('oc-edit-viatura-outro').value.trim()
@@ -502,13 +602,14 @@ window.confirmarEdicaoOcorrencia = async function () {
 
     if (!codigo)   return mostrar('⚠️ Selecione o Código.');
     if (!local)    return mostrar('⚠️ Selecione o Local.');
+    if (referencia.tipo && !referencia.detalhe) return mostrar(`⚠️ Informe o detalhe da referência ${referencia.tipo}.`);
     if (!viatura)  return mostrar('⚠️ Informe a Viatura.');
     if (!condutor) return mostrar('⚠️ Selecione o Condutor.');
     if (!hora)     return mostrar('⚠️ Informe a Hora Inicial.');
 
     const updates = {
         codigo_descricao:     codigo,
-        local:                local,
+        local:                localFinal,
         id_viatura_vinculada: viatura,
         condutor:             condutor,
         apoio:                apoio || null,
@@ -940,6 +1041,179 @@ window.removerFotoPreview = function (idx) {
 // ==========================================
 // OBSERVAÇÃO E FOTO DIRETO DA LISTA
 // ==========================================
+let ocorrenciaObservacaoListaId = null;
+let ocorrenciaAgentesExtraId = null;
+let ocorrenciaAgentesExtraAtuais = [];
+let ocorrenciaAgentesExtraBloqueados = [];
+
+function normalizarAgenteOcorrencia(valor) {
+    return String(valor || '')
+        .toUpperCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+function agenteJaListadoOcorrencia(lista, agente) {
+    const alvo = normalizarAgenteOcorrencia(agente);
+    return (lista || []).some(item => normalizarAgenteOcorrencia(item) === alvo);
+}
+
+function mostrarErroAgentesOcorrencia(msg) {
+    const erro = document.getElementById('erro-modal-agentes-oc');
+    if (!erro) return mostrarNotificacao('erro-ocorrencia', msg);
+    erro.textContent = msg;
+    erro.classList.remove('hidden');
+}
+
+function ocultarErroAgentesOcorrencia() {
+    document.getElementById('erro-modal-agentes-oc')?.classList.add('hidden');
+}
+
+function renderizarAgentesExtraOcorrencia() {
+    const lista = document.getElementById('oc-agentes-extra-lista');
+    if (!lista) return;
+
+    if (!ocorrenciaAgentesExtraAtuais.length) {
+        lista.innerHTML = '<div class="message system-msg" style="max-width:100%;margin-top:6px;">Nenhum agente adicional.</div>';
+        return;
+    }
+
+    lista.innerHTML = ocorrenciaAgentesExtraAtuais.map((agente, idx) => `
+        <div class="rel-card-sub" style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+            <span style="font-size:13px;color:var(--text-primary);">${escapeHTML(agente)}</span>
+            <button class="btn-action btn-close" type="button" style="padding:4px 9px;font-size:11px;" onclick="removerAgenteExtraOcorrencia(${idx})">✕</button>
+        </div>
+    `).join('');
+}
+
+async function carregarAgentesComKmAberto() {
+    const { data, error } = await db
+        .from('registros_viatura')
+        .select('condutor, apoio')
+        .eq('status', 'aberto');
+
+    if (error) throw error;
+
+    const unicos = new Map();
+    (data || []).forEach(reg => {
+        [reg.condutor, reg.apoio].forEach(agente => {
+            const nome = String(agente || '').trim();
+            if (!nome) return;
+            unicos.set(normalizarAgenteOcorrencia(nome), nome);
+        });
+    });
+
+    return Array.from(unicos.values()).sort((a, b) => a.localeCompare(b, 'pt-BR', { sensitivity: 'base' }));
+}
+
+function preencherSelectAgentesExtraOcorrencia(agentes) {
+    const select = document.getElementById('oc-agente-extra-select');
+    if (!select) return;
+
+    const disponiveis = (agentes || []).filter(agente =>
+        !agenteJaListadoOcorrencia(ocorrenciaAgentesExtraBloqueados, agente)
+        && !agenteJaListadoOcorrencia(ocorrenciaAgentesExtraAtuais, agente)
+    );
+
+    if (!disponiveis.length) {
+        select.innerHTML = '<option value="">Nenhum agente disponível</option>';
+        return;
+    }
+
+    select.innerHTML = '<option value="">Selecione o agente...</option>' + disponiveis
+        .map(agente => `<option value="${escapeHTML(agente)}">${escapeHTML(agente)}</option>`)
+        .join('');
+}
+
+window.abrirModalAgentesOcorrencia = async function (id) {
+    ocorrenciaAgentesExtraId = null;
+    ocultarErroAgentesOcorrencia();
+
+    const { data: oc, error } = await db.from('ocorrencias').select('*').eq('id', id).single();
+    if (error || !oc) return mostrarNotificacao('erro-ocorrencia', '❌ Erro ao carregar ocorrência.');
+
+    if (!podeAlterarOcorrencia(oc)) {
+        return mostrarNotificacao('erro-ocorrencia', '⚠️ Só o criador pode gerenciar agentes desta ocorrência.');
+    }
+
+    if (!isUnder24hOc(oc)) {
+        return mostrarNotificacao('erro-ocorrencia', '⚠️ Ocorrências com mais de 24h não podem ser editadas.');
+    }
+
+    ocorrenciaAgentesExtraId = id;
+    ocorrenciaAgentesExtraAtuais = Array.isArray(oc.agentes_adicionais) ? [...oc.agentes_adicionais].filter(Boolean) : [];
+    ocorrenciaAgentesExtraBloqueados = [oc.condutor, oc.apoio].filter(Boolean);
+
+    const select = document.getElementById('oc-agente-extra-select');
+    if (select) select.innerHTML = '<option value="">Carregando agentes...</option>';
+    renderizarAgentesExtraOcorrencia();
+    document.getElementById('modal-agentes-oc')?.classList.remove('hidden');
+
+    try {
+        const agentes = await carregarAgentesComKmAberto();
+        preencherSelectAgentesExtraOcorrencia(agentes);
+    } catch (err) {
+        mostrarErroAgentesOcorrencia('❌ Erro ao carregar agentes com KM aberto: ' + err.message);
+        if (select) select.innerHTML = '<option value="">Erro ao carregar agentes</option>';
+    }
+};
+
+window.adicionarAgenteExtraOcorrencia = async function () {
+    const select = document.getElementById('oc-agente-extra-select');
+    const agente = String(select?.value || '').trim();
+    if (!agente) return mostrarErroAgentesOcorrencia('⚠️ Selecione um agente.');
+
+    if (agenteJaListadoOcorrencia(ocorrenciaAgentesExtraBloqueados, agente)) {
+        return mostrarErroAgentesOcorrencia('⚠️ Este agente já está como condutor ou apoio.');
+    }
+
+    if (agenteJaListadoOcorrencia(ocorrenciaAgentesExtraAtuais, agente)) {
+        return mostrarErroAgentesOcorrencia('⚠️ Este agente já foi adicionado.');
+    }
+
+    ocultarErroAgentesOcorrencia();
+    ocorrenciaAgentesExtraAtuais.push(agente);
+    renderizarAgentesExtraOcorrencia();
+
+    try {
+        const agentes = await carregarAgentesComKmAberto();
+        preencherSelectAgentesExtraOcorrencia(agentes);
+    } catch (err) {
+        if (select) select.value = '';
+    }
+};
+
+window.removerAgenteExtraOcorrencia = async function (idx) {
+    ocorrenciaAgentesExtraAtuais.splice(idx, 1);
+    renderizarAgentesExtraOcorrencia();
+
+    try {
+        const agentes = await carregarAgentesComKmAberto();
+        preencherSelectAgentesExtraOcorrencia(agentes);
+    } catch (err) {
+        // Mantem a lista atual renderizada mesmo se a recarga do select falhar.
+    }
+};
+
+window.confirmarAgentesExtraOcorrencia = async function () {
+    if (!ocorrenciaAgentesExtraId) return;
+
+    const { error } = await db.from('ocorrencias')
+        .update({ agentes_adicionais: ocorrenciaAgentesExtraAtuais })
+        .eq('id', ocorrenciaAgentesExtraId);
+
+    if (error) return mostrarErroAgentesOcorrencia('❌ Erro ao salvar agentes: ' + error.message);
+
+    ocorrenciaAgentesExtraId = null;
+    ocorrenciaAgentesExtraAtuais = [];
+    ocorrenciaAgentesExtraBloqueados = [];
+    fecharModal('modal-agentes-oc');
+    mostrarNotificacao('erro-ocorrencia', '✅ Agentes atualizados!', true);
+    carregarHistoricoOcorrencia(true);
+};
+
 window.adicionarObservacaoLista = async function (id) {
     const { data: oc, error } = await db.from('ocorrencias').select('*').eq('id', id).single();
     if (error || !oc) return mostrarNotificacao('erro-ocorrencia', '❌ Erro ao carregar ocorrência.');
@@ -952,17 +1226,40 @@ window.adicionarObservacaoLista = async function (id) {
         return mostrarNotificacao('erro-ocorrencia', '⚠️ Ocorrências com mais de 24h não podem ser editadas.');
     }
 
-    const observacao = prompt('Observação para esta ocorrência:', oc.observacao || '');
-    if (observacao === null) return;
-    const obs = observacao.trim();
-    if (!obs) return mostrarNotificacao('erro-ocorrencia', '⚠️ A observação não pode ficar vazia.');
+    ocorrenciaObservacaoListaId = id;
+    const erro = document.getElementById('erro-modal-observacao-oc');
+    const campo = document.getElementById('oc-observacao-texto');
+    if (erro) erro.classList.add('hidden');
+    if (campo) {
+        campo.value = oc.observacao || '';
+        setTimeout(() => campo.focus(), 0);
+    }
+    document.getElementById('modal-observacao-oc')?.classList.remove('hidden');
+};
+
+window.confirmarObservacaoLista = async function () {
+    if (!ocorrenciaObservacaoListaId) return;
+
+    const erro = document.getElementById('erro-modal-observacao-oc');
+    const campo = document.getElementById('oc-observacao-texto');
+    const obs = (campo?.value || '').trim();
+    const mostrar = msg => {
+        if (!erro) return mostrarNotificacao('erro-ocorrencia', msg);
+        erro.textContent = msg;
+        erro.classList.remove('hidden');
+    };
+
+    if (!obs) return mostrar('⚠️ A observação não pode ficar vazia.');
 
     const { error: errUpdate } = await db.from('ocorrencias')
         .update({ observacao: obs })
-        .eq('id', id);
+        .eq('id', ocorrenciaObservacaoListaId);
 
-    if (errUpdate) return mostrarNotificacao('erro-ocorrencia', '❌ Erro ao salvar: ' + errUpdate.message);
+    if (errUpdate) return mostrar('❌ Erro ao salvar: ' + errUpdate.message);
 
+    ocorrenciaObservacaoListaId = null;
+    if (campo) campo.value = '';
+    fecharModal('modal-observacao-oc');
     mostrarNotificacao('erro-ocorrencia', '✅ Observação salva!', true);
     carregarHistoricoOcorrencia(true);
 };

@@ -4,6 +4,7 @@
 let vtrPagina       = 0;
 let vtrTodosCarregados = false;
 let vtrCarregando   = false;
+let fechamentoSemViatura = false;
 
 async function carregarHistoricoViatura(resetar = true) {
     if (vtrCarregando) return;
@@ -120,10 +121,11 @@ btnAbrirKm.addEventListener('click', async () => {
     const km       = vtrKmInicial.value.trim();
     const hora     = vtrHoraInicial.value;
     const data     = document.getElementById('vtr-data-inicial').value;
+    const semViatura = isSemViatura(prefixo);
 
     if (!prefixo)  return mostrarNotificacao('erro-viatura', '⚠️ Selecione ou digite a Viatura.');
     if (!condutor) return mostrarNotificacao('erro-viatura', '⚠️ Selecione ou digite o Condutor.');
-    if (!km)       return mostrarNotificacao('erro-viatura', '⚠️ Informe o KM Inicial.');
+    if (!semViatura && !km) return mostrarNotificacao('erro-viatura', '⚠️ Informe o KM Inicial.');
     if (!data)     return mostrarNotificacao('erro-viatura', '⚠️ Informe a Data.');
     if (!hora)     return mostrarNotificacao('erro-viatura', '⚠️ Informe a Hora Inicial.');
 
@@ -151,37 +153,41 @@ btnAbrirKm.addEventListener('click', async () => {
             `⚠️ Você já tem KM aberto na viatura ${kmAberto[0].prefixo_vtr}. Encerre antes de abrir outro.`);
     }
 
-    const { data: ultimoKm } = await db
-        .from('registros_viatura')
-        .select('km_final')
-        .eq('prefixo_vtr', prefixo)
-        .eq('status', 'fechado')
-        .order('id', { ascending: false })
-        .limit(1);
+    if (!semViatura) {
+        const { data: ultimoKm } = await db
+            .from('registros_viatura')
+            .select('km_final')
+            .eq('prefixo_vtr', prefixo)
+            .eq('status', 'fechado')
+            .order('id', { ascending: false })
+            .limit(1);
 
-    if (ultimoKm && ultimoKm.length > 0 && ultimoKm[0].km_final) {
-        const kmFinalAnterior = parseFloat(ultimoKm[0].km_final);
-        const kmAtual         = parseFloat(km);
-        if (kmAtual < kmFinalAnterior) {
-            return mostrarNotificacao('erro-viatura',
-                `⚠️ KM inválido. O último KM registrado da viatura ${prefixo} foi ${kmFinalAnterior}. O KM inicial não pode ser menor.`);
+        if (ultimoKm && ultimoKm.length > 0 && ultimoKm[0].km_final) {
+            const kmFinalAnterior = parseFloat(ultimoKm[0].km_final);
+            const kmAtual         = parseFloat(km);
+            if (kmAtual < kmFinalAnterior) {
+                return mostrarNotificacao('erro-viatura',
+                    `⚠️ KM inválido. O último KM registrado da viatura ${prefixo} foi ${kmFinalAnterior}. O KM inicial não pode ser menor.`);
+            }
         }
     }
 
-    const { data: viaturaAberta } = await db
-        .from('registros_viatura')
-        .select('id, condutor, apoio')
-        .eq('prefixo_vtr', prefixo)
-        .eq('status', 'aberto')
-        .limit(1);
+    if (!semViatura) {
+        const { data: viaturaAberta } = await db
+            .from('registros_viatura')
+            .select('id, condutor, apoio')
+            .eq('prefixo_vtr', prefixo)
+            .eq('status', 'aberto')
+            .limit(1);
 
-    if (viaturaAberta && viaturaAberta.length > 0) {
-        const v = viaturaAberta[0];
-        return mostrarNotificacao('erro-viatura',
-            `⚠️ A viatura ${prefixo} já está com KM aberto (Condutor: ${v.condutor} | Apoio: ${v.apoio || '—'}). Encerre o KM atual antes de abrir um novo.`);
+        if (viaturaAberta && viaturaAberta.length > 0) {
+            const v = viaturaAberta[0];
+            return mostrarNotificacao('erro-viatura',
+                `⚠️ A viatura ${prefixo} já está com KM aberto (Condutor: ${v.condutor} | Apoio: ${v.apoio || '—'}). Encerre o KM atual antes de abrir um novo.`);
+        }
     }
 
-    const dadosKm = { prefixo_vtr: prefixo, condutor, apoio, km_inicial: km, data: data, hora_inicial: hora, status: 'aberto' };
+    const dadosKm = { prefixo_vtr: prefixo, condutor, apoio, km_inicial: semViatura ? null : km, data: data, hora_inicial: hora, status: 'aberto' };
     const { data: kmInserido, error } = await db.from('registros_viatura').insert([dadosKm]).select();
 
     if (error) {
@@ -214,6 +220,16 @@ function gerarHTMLMensagemVtr(dados) {
     const condutor  = escapeHTML(dados.condutor || '—');
     const apoio     = escapeHTML(dados.apoio || '—');
     const kmInicial = escapeHTML(dados.km_inicial || '—');
+    const semViatura = isSemViatura(dados.prefixo_vtr);
+    const dadosKmHTML = semViatura ? '' : `
+                <div>
+                    <div style="color:var(--text-secondary);font-size:11px;">KM INICIAL</div>
+                    <div style="font-size:13px;">${kmInicial}</div>
+                </div>
+                <div>
+                    <div style="color:var(--text-secondary);font-size:11px;">KM FINAL</div>
+                    <div style="font-size:13px;">${kmFinal}</div>
+                </div>`;
 
     let createdAtTs = null;
     if (dados.data) {
@@ -243,7 +259,7 @@ function gerarHTMLMensagemVtr(dados) {
     }
 
     const statusColor  = aberto ? 'var(--green-accent)' : '#ff5252';
-    const statusLabel  = aberto ? 'KM ABERTO' : 'KM FECHADO';
+    const statusLabel  = semViatura ? (aberto ? 'SERVIÇO A PÉ ABERTO' : 'SERVIÇO A PÉ FECHADO') : (aberto ? 'KM ABERTO' : 'KM FECHADO');
 
     const fmt = h => h ? h.substring(0, 5) : '—';
 
@@ -266,14 +282,7 @@ function gerarHTMLMensagemVtr(dados) {
                 ${apoio}
             </div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:4px;">
-                <div>
-                    <div style="color:var(--text-secondary);font-size:11px;">KM INICIAL</div>
-                    <div style="font-size:13px;">${kmInicial}</div>
-                </div>
-                <div>
-                    <div style="color:var(--text-secondary);font-size:11px;">KM FINAL</div>
-                    <div style="font-size:13px;">${kmFinal}</div>
-                </div>
+                ${dadosKmHTML}
                 <div>
                     <div style="color:var(--text-secondary);font-size:11px;">HORA INICIAL</div>
                     <div style="font-size:13px;">${fmt(dados.hora_inicial)}</div>
@@ -339,11 +348,21 @@ window.editarRegistroCompleto = async function (id) {
     setValorInteligente('edit-apoio',    'edit-apoio-outro',    reg.apoio);
     document.getElementById('edit-km').value   = reg.km_inicial;
     document.getElementById('edit-hora').value = reg.hora_inicial;
+    const semViatura = isSemViatura(reg.prefixo_vtr);
+    const rowKmInicial = document.getElementById('row-edit-km-inicial');
+    if (rowKmInicial) rowKmInicial.classList.toggle('hidden', semViatura);
+    if (semViatura) document.getElementById('edit-km').value = '';
 
     const rowFinal = document.getElementById('row-edit-final');
     if (reg.status === 'fechado') {
         rowFinal.classList.remove('hidden');
-        document.getElementById('edit-km-final').value   = reg.km_final || '';
+        const kmFinalEl = document.getElementById('edit-km-final');
+        const kmFinalLabel = document.querySelector('label[for="edit-km-final"]');
+        if (kmFinalEl) {
+            kmFinalEl.classList.toggle('hidden', semViatura);
+            kmFinalEl.value = semViatura ? '' : (reg.km_final || '');
+        }
+        if (kmFinalLabel) kmFinalLabel.classList.toggle('hidden', semViatura);
         document.getElementById('edit-hora-final').value = reg.hora_final || '';
     } else {
         rowFinal.classList.add('hidden');
@@ -379,18 +398,20 @@ window.confirmarEdicao = async function () {
         km_inicial:   document.getElementById('edit-km').value,
         hora_inicial: document.getElementById('edit-hora').value,
     };
+    const semViatura = isSemViatura(novos.prefixo_vtr);
+    if (semViatura) novos.km_inicial = null;
 
     const rowFinal = document.getElementById('row-edit-final');
     if (!rowFinal.classList.contains('hidden')) {
-        novos.km_final   = document.getElementById('edit-km-final').value;
+        novos.km_final   = semViatura ? null : document.getElementById('edit-km-final').value;
         novos.hora_final = document.getElementById('edit-hora-final').value;
-        if (!novos.km_final) return mostrarNotificacao('erro-modal-editar', '⚠️ Informe o KM Final.');
+        if (!semViatura && !novos.km_final) return mostrarNotificacao('erro-modal-editar', '⚠️ Informe o KM Final.');
         if (!novos.hora_final) return mostrarNotificacao('erro-modal-editar', '⚠️ Informe a Hora Final.');
     }
 
     if (!novos.prefixo_vtr) return mostrarNotificacao('erro-modal-editar', '⚠️ Informe a Viatura.');
     if (!novos.condutor)    return mostrarNotificacao('erro-modal-editar', '⚠️ Informe o Condutor.');
-    if (!novos.km_inicial)  return mostrarNotificacao('erro-modal-editar', '⚠️ Informe o KM Inicial.');
+    if (!semViatura && !novos.km_inicial) return mostrarNotificacao('erro-modal-editar', '⚠️ Informe o KM Inicial.');
     if (novos.condutor && novos.apoio && novos.condutor === novos.apoio)
         return mostrarNotificacao('erro-modal-editar', '⚠️ Condutor e Apoio não podem ser o mesmo agente.');
     if (agenteLogado && agenteLogado.det_codigo) {
@@ -416,6 +437,16 @@ window.confirmarEdicao = async function () {
 };
 
 window.fecharKM = async function (id) {
+    const { data: regFechamento, error: errRegFechamento } = await db
+        .from('registros_viatura')
+        .select('prefixo_vtr')
+        .eq('id', id)
+        .single();
+
+    if (errRegFechamento || !regFechamento) {
+        return mostrarNotificacao('erro-viatura', '❌ Erro ao carregar dados do KM.');
+    }
+
     const { data: ocAberta } = await db
         .from('ocorrencias')
         .select('id, numero_ocorrencia, codigo_descricao')
@@ -431,19 +462,23 @@ window.fecharKM = async function (id) {
     }
 
     idSendoProcessado = id;
+    fechamentoSemViatura = isSemViatura(regFechamento.prefixo_vtr);
     document.getElementById('fechar-hora-final').value =
         new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     document.getElementById('fechar-km-final').value = '';
+    const rowKmFinal = document.getElementById('row-fechar-km-final');
+    if (rowKmFinal) rowKmFinal.classList.toggle('hidden', fechamentoSemViatura);
     document.getElementById('modal-fechar').classList.remove('hidden');
 };
 
 window.confirmarFechamento = async function () {
     const kmFinal   = document.getElementById('fechar-km-final').value.trim();
     const horaFinal = document.getElementById('fechar-hora-final').value;
-    if (!kmFinal) return mostrarNotificacao('erro-modal-fechar', '⚠️ Informe o KM Final.');
+    if (!fechamentoSemViatura && !kmFinal) return mostrarNotificacao('erro-modal-fechar', '⚠️ Informe o KM Final.');
+    if (!horaFinal) return mostrarNotificacao('erro-modal-fechar', '⚠️ Informe a Hora Final.');
 
     const { error } = await db.from('registros_viatura')
-        .update({ km_final: kmFinal, hora_final: horaFinal, status: 'fechado' })
+        .update({ km_final: fechamentoSemViatura ? null : kmFinal, hora_final: horaFinal, status: 'fechado' })
         .eq('id', idSendoProcessado);
 
     if (error) {
@@ -454,7 +489,10 @@ window.confirmarFechamento = async function () {
         if (balao) {
             balao.style.opacity = '0.7';
             balao.querySelector('.message-actions').innerHTML =
-                `✅ KM Finalizado: ${kmFinal} (${horaFinal})`;
+                fechamentoSemViatura
+                    ? `✅ Serviço a pé finalizado (${horaFinal})`
+                    : `✅ KM Finalizado: ${kmFinal} (${horaFinal})`;
         }
+        fechamentoSemViatura = false;
     }
 };

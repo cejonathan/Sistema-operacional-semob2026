@@ -24,6 +24,12 @@ const containerMensagensVtr = document.getElementById('container-msgs-viatura');
 const ocSelectCodigo     = document.getElementById('oc-select-codigo');
 const ocSelectSetor      = document.getElementById('oc-select-setor');
 const ocSugestoesSetor   = document.getElementById('oc-sugestoes-setor');
+const ocSelectReferencia = document.getElementById('oc-select-referencia');
+const ocRowReferenciaManual = document.getElementById('oc-row-referencia-manual');
+const ocInputReferenciaManual = document.getElementById('oc-input-referencia-manual');
+const ocRowReferenciaCruzamento = document.getElementById('oc-row-referencia-cruzamento');
+const ocInputReferenciaCruzamento = document.getElementById('oc-input-referencia-cruzamento');
+const ocSugestoesReferenciaCruzamento = document.getElementById('oc-sugestoes-referencia-cruzamento');
 const ocSelectVtr        = document.getElementById('oc-select-vtr');
 const ocSelectCondutor   = document.getElementById('oc-select-condutor');
 const ocSelectApoio      = document.getElementById('oc-select-apoio');
@@ -48,6 +54,7 @@ let fotosSelecionadas = [];
 let filtroOcorrenciaAtual = 'todos';
 let listaSetoresOcorrencia = [];
 let indiceSugestaoSetor = -1;
+let indiceSugestaoReferenciaCruzamento = -1;
 
 // ==========================================
 // FUNÇÕES DE APOIO
@@ -89,6 +96,7 @@ function aplicarFiltroMinhasOcorrencias(query) {
     obterIdentificadoresAgenteLogado().forEach(agente => {
         filtros.push(`condutor.ilike.%${agente}%`);
         filtros.push(`apoio.ilike.%${agente}%`);
+        filtros.push(`agentes_adicionais.cs.{"${String(agente).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"}`);
     });
 
     return filtros.length ? query.or(filtros.join(',')) : query;
@@ -112,11 +120,15 @@ function ocorrenciaEhDoAgenteLogado(ocorrencia) {
 
     const condutor = String(ocorrencia.condutor || '').toUpperCase();
     const apoio = String(ocorrencia.apoio || '').toUpperCase();
+    const agentesAdicionais = Array.isArray(ocorrencia.agentes_adicionais)
+        ? ocorrencia.agentes_adicionais.map(a => String(a || '').toUpperCase())
+        : [];
 
     return obterIdentificadoresAgenteLogado().some(agente => {
         const ag = agente.toUpperCase();
         return (condutor && (condutor.includes(ag) || ag.includes(condutor)))
-            || (apoio && (apoio.includes(ag) || ag.includes(apoio)));
+            || (apoio && (apoio.includes(ag) || ag.includes(apoio)))
+            || agentesAdicionais.some(extra => extra && (extra.includes(ag) || ag.includes(extra)));
     });
 }
 
@@ -141,6 +153,19 @@ function selecionarSugestaoSetor(nome) {
     ocultarSugestoesSetor();
 }
 
+function ocultarSugestoesReferenciaCruzamento() {
+    if (!ocSugestoesReferenciaCruzamento) return;
+    ocSugestoesReferenciaCruzamento.classList.add('hidden');
+    ocSugestoesReferenciaCruzamento.innerHTML = '';
+    indiceSugestaoReferenciaCruzamento = -1;
+}
+
+function selecionarSugestaoReferenciaCruzamento(nome) {
+    if (!ocInputReferenciaCruzamento) return;
+    ocInputReferenciaCruzamento.value = nome;
+    ocultarSugestoesReferenciaCruzamento();
+}
+
 function renderizarSugestoesSetor() {
     if (!ocSelectSetor || !ocSugestoesSetor) return;
 
@@ -163,6 +188,30 @@ function renderizarSugestoesSetor() {
         `<button type="button" class="autocomplete-item${index === indiceSugestaoSetor ? ' ativo' : ''}" data-local="${escapeHTML(nome)}">${escapeHTML(nome)}</button>`
     ).join('');
     ocSugestoesSetor.classList.remove('hidden');
+}
+
+function renderizarSugestoesReferenciaCruzamento() {
+    if (!ocInputReferenciaCruzamento || !ocSugestoesReferenciaCruzamento) return;
+
+    const termo = normalizarBusca(ocInputReferenciaCruzamento.value);
+    if (termo.length < 2) {
+        ocultarSugestoesReferenciaCruzamento();
+        return;
+    }
+
+    const resultados = listaSetoresOcorrencia
+        .filter(nome => normalizarBusca(nome).includes(termo))
+        .slice(0, 12);
+
+    if (!resultados.length) {
+        ocultarSugestoesReferenciaCruzamento();
+        return;
+    }
+
+    ocSugestoesReferenciaCruzamento.innerHTML = resultados.map((nome, index) =>
+        `<button type="button" class="autocomplete-item${index === indiceSugestaoReferenciaCruzamento ? ' ativo' : ''}" data-local="${escapeHTML(nome)}">${escapeHTML(nome)}</button>`
+    ).join('');
+    ocSugestoesReferenciaCruzamento.classList.remove('hidden');
 }
 
 function configurarAutocompleteSetor() {
@@ -208,6 +257,101 @@ function configurarAutocompleteSetor() {
     });
 }
 
+function configurarAutocompleteReferenciaCruzamento() {
+    if (!ocInputReferenciaCruzamento || !ocSugestoesReferenciaCruzamento) return;
+
+    ocInputReferenciaCruzamento.addEventListener('input', () => {
+        indiceSugestaoReferenciaCruzamento = -1;
+        renderizarSugestoesReferenciaCruzamento();
+    });
+
+    ocInputReferenciaCruzamento.addEventListener('focus', renderizarSugestoesReferenciaCruzamento);
+
+    ocInputReferenciaCruzamento.addEventListener('keydown', event => {
+        const itens = Array.from(ocSugestoesReferenciaCruzamento.querySelectorAll('.autocomplete-item'));
+        if (ocSugestoesReferenciaCruzamento.classList.contains('hidden') || !itens.length) return;
+
+        if (event.key === 'ArrowDown') {
+            event.preventDefault();
+            indiceSugestaoReferenciaCruzamento = (indiceSugestaoReferenciaCruzamento + 1) % itens.length;
+            renderizarSugestoesReferenciaCruzamento();
+        } else if (event.key === 'ArrowUp') {
+            event.preventDefault();
+            indiceSugestaoReferenciaCruzamento = (indiceSugestaoReferenciaCruzamento - 1 + itens.length) % itens.length;
+            renderizarSugestoesReferenciaCruzamento();
+        } else if (event.key === 'Enter' && indiceSugestaoReferenciaCruzamento >= 0) {
+            event.preventDefault();
+            selecionarSugestaoReferenciaCruzamento(itens[indiceSugestaoReferenciaCruzamento].dataset.local);
+        } else if (event.key === 'Escape') {
+            ocultarSugestoesReferenciaCruzamento();
+        }
+    });
+
+    ocSugestoesReferenciaCruzamento.addEventListener('mousedown', event => {
+        const item = event.target.closest('.autocomplete-item');
+        if (!item) return;
+        event.preventDefault();
+        selecionarSugestaoReferenciaCruzamento(item.dataset.local);
+    });
+
+    document.addEventListener('click', event => {
+        if (event.target === ocInputReferenciaCruzamento || ocSugestoesReferenciaCruzamento.contains(event.target)) return;
+        ocultarSugestoesReferenciaCruzamento();
+    });
+}
+
+function atualizarCamposReferenciaOcorrencia() {
+    if (!ocSelectReferencia) return;
+
+    const tipo = ocSelectReferencia.value;
+    const mostrarManual = tipo === 'Defronte' || tipo === 'Oposto';
+    const mostrarCruzamento = tipo === 'Cruzamento';
+
+    if (ocRowReferenciaManual) ocRowReferenciaManual.classList.toggle('hidden', !mostrarManual);
+    if (ocRowReferenciaCruzamento) ocRowReferenciaCruzamento.classList.toggle('hidden', !mostrarCruzamento);
+
+    if (!mostrarManual && ocInputReferenciaManual) ocInputReferenciaManual.value = '';
+    if (!mostrarCruzamento && ocInputReferenciaCruzamento) ocInputReferenciaCruzamento.value = '';
+    if (!mostrarCruzamento) ocultarSugestoesReferenciaCruzamento();
+
+    if (mostrarManual && ocInputReferenciaManual) ocInputReferenciaManual.focus();
+    if (mostrarCruzamento && ocInputReferenciaCruzamento) ocInputReferenciaCruzamento.focus();
+}
+
+function obterReferenciaOcorrencia() {
+    const tipo = ocSelectReferencia?.value || '';
+    if (!tipo) return { tipo: '', detalhe: '' };
+
+    if (tipo === 'Defronte' || tipo === 'Oposto') {
+        return { tipo, detalhe: (ocInputReferenciaManual?.value || '').trim() };
+    }
+
+    if (tipo === 'Cruzamento') {
+        return { tipo, detalhe: (ocInputReferenciaCruzamento?.value || '').trim() };
+    }
+
+    return { tipo, detalhe: '' };
+}
+
+function montarLocalComReferencia(local) {
+    const referencia = obterReferenciaOcorrencia();
+    if (!referencia.tipo) return local;
+
+    const detalhe = referencia.detalhe ? ` ${referencia.detalhe}` : '';
+    return `${local} - ${referencia.tipo}${detalhe}`;
+}
+
+function limparReferenciaOcorrencia() {
+    if (ocSelectReferencia) ocSelectReferencia.value = '';
+    if (ocInputReferenciaManual) ocInputReferenciaManual.value = '';
+    if (ocInputReferenciaCruzamento) ocInputReferenciaCruzamento.value = '';
+    atualizarCamposReferenciaOcorrencia();
+}
+
+window.obterReferenciaOcorrencia = obterReferenciaOcorrencia;
+window.montarLocalComReferencia = montarLocalComReferencia;
+window.limparReferenciaOcorrencia = limparReferenciaOcorrencia;
+
 function definirListaSetoresOcorrencia(setores) {
     const nomes = (setores || [])
         .map(s => String(s.nome || '').trim())
@@ -219,6 +363,7 @@ function definirListaSetoresOcorrencia(setores) {
         .sort((a, b) => a.localeCompare(b, 'pt-BR', { sensitivity: 'base' }));
 
     renderizarSugestoesSetor();
+    renderizarSugestoesReferenciaCruzamento();
 }
 
 async function carregarTodosSetores(colunas = 'id, nome') {
@@ -491,6 +636,11 @@ btnEntrarOcorrencia.addEventListener('click', async () => {
 });
 
 configurarAutocompleteSetor();
+configurarAutocompleteReferenciaCruzamento();
+if (ocSelectReferencia) {
+    ocSelectReferencia.addEventListener('change', atualizarCamposReferenciaOcorrencia);
+    atualizarCamposReferenciaOcorrencia();
+}
 
 window.voltarParaInicio = function () {
     [vtrSelectCondutor, vtrSelectApoio, ocSelectVtr, ocSelectCondutor].forEach(s => {
@@ -707,8 +857,20 @@ document.getElementById('input-pesquisa-ocorrencia').addEventListener('input', d
         }
         const { data: todos } = await q2;
         if (todos) {
+            const termoNormalizado = normalizarBusca(termoBuscaOc);
             resultadosOc = filtrarOcorrenciasLocalmente(todos).filter(r =>
-                String(r.data || '').includes(termoBuscaOc)
+                [
+                    r.data,
+                    r.numero_ocorrencia,
+                    r.codigo_descricao,
+                    r.id_viatura_vinculada,
+                    r.local,
+                    r.condutor,
+                    r.apoio,
+                    r.observacao,
+                    r.status,
+                    ...(Array.isArray(r.agentes_adicionais) ? r.agentes_adicionais : [])
+                ].some(valor => normalizarBusca(valor).includes(termoNormalizado))
             );
         }
     }
@@ -738,6 +900,27 @@ function getValorCampo(idSel, idInp) {
     const inp = document.getElementById(idInp);
     if (!sel) return '';
     return (sel.value === 'Outros' || sel.value.toLowerCase().startsWith('outro')) ? (inp ? inp.value.trim() : '') : sel.value;
+}
+
+function normalizarTextoBase(valor) {
+    return String(valor || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .toLowerCase();
+}
+
+function isSemViatura(valor) {
+    return normalizarTextoBase(valor) === 'sem viatura';
+}
+
+function atualizarCampoKmInicialViatura() {
+    const prefixo = getValorCampo('vtr-select-vtr', 'vtr-input-vtr-outro');
+    const semViatura = isSemViatura(prefixo);
+    const rowKm = document.getElementById('row-vtr-km-inicial');
+    if (rowKm) rowKm.classList.toggle('hidden', semViatura);
+    if (semViatura && vtrKmInicial) vtrKmInicial.value = '';
 }
 
 async function carregarListas() {
@@ -792,6 +975,7 @@ async function carregarListas() {
                 `<option value="${prefixo}">${prefixo}</option>`);
         });
     }
+    atualizarCampoKmInicialViatura();
 
     if (agentes && !errAgente) {
         agentes.forEach(ag => {
@@ -833,6 +1017,8 @@ async function carregarListas() {
             const html = `<option value="${nome}">${nome}</option>`;
             const ss = document.getElementById('oc-edit-setor');
             if (ss) ss.insertAdjacentHTML('beforeend', `<option value="${nome}">${nome}</option>`);
+            const ssRef = document.getElementById('oc-edit-referencia-cruzamento');
+            if (ssRef) ssRef.insertAdjacentHTML('beforeend', `<option value="${nome}">${nome}</option>`);
             const ss2 = document.getElementById('edit-setor');
             if (ss2) ss2.insertAdjacentHTML('beforeend', `<option value="${nome}">${nome}</option>`);
         });
@@ -874,7 +1060,18 @@ async function carregarListas() {
             else         input.classList.toggle('hidden', !mostrar);
             if (mostrar) input.focus();
             else         input.value = '';
+            if (idSel === 'vtr-select-vtr') atualizarCampoKmInicialViatura();
         });
+    });
+
+    document.getElementById('vtr-input-vtr-outro')?.addEventListener('input', atualizarCampoKmInicialViatura);
+
+    document.getElementById('edit-prefixo')?.addEventListener('change', function () {
+        const prefixo = getValorCampo('edit-prefixo', 'edit-prefixo-outro');
+        const semViatura = isSemViatura(prefixo);
+        const rowKm = document.getElementById('row-edit-km-inicial');
+        if (rowKm) rowKm.classList.toggle('hidden', semViatura);
+        if (semViatura) document.getElementById('edit-km').value = '';
     });
 
     console.log("Listas carregadas!");

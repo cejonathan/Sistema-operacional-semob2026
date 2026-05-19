@@ -300,10 +300,18 @@ select:focus, input:focus {
 /* BOTÕES DE AÇÃO NA MENSAGEM */
 .message-actions {
     display: flex;
+    flex-wrap: wrap;
     gap: 10px;
     margin-top: 10px;
     border-top: 1px solid rgba(255,255,255,0.1);
     padding-top: 8px;
+}
+
+.message-actions .btn-action {
+    flex: 1 1 92px;
+    min-width: 0;
+    text-align: center;
+    white-space: nowrap;
 }
 
 .btn-action {
