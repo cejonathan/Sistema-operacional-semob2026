@@ -7,6 +7,7 @@ const telaViatura    = document.getElementById('tela-conversa-viatura');
 const telaOcorrencia = document.getElementById('tela-conversa-ocorrencia');
 const telaDetalhe    = document.getElementById('tela-detalhe-ocorrencia');
 const telaRelatorio = document.getElementById('tela-conversa-relatorio');
+const telaRegistroHorarios = document.getElementById('tela-conversa-registro-horarios');
 
 const btnEntrarViatura    = document.getElementById('btn-entrar-viatura');
 const btnEntrarOcorrencia = document.getElementById('btn-entrar-ocorrencia');
@@ -597,7 +598,7 @@ function mostrarNotificacao(idElemento, mensagem, sucesso = false) {
 // NAVEGAÇÃO ENTRE TELAS
 // ==========================================
 function ocultarTodasTelas() {
-    [telaLogin, telaInicial, telaViatura, telaOcorrencia, telaDetalhe, telaRelatorio]
+    [telaLogin, telaInicial, telaViatura, telaOcorrencia, telaDetalhe, telaRelatorio, telaRegistroHorarios]
         .forEach(t => t && t.classList.add('hidden'));
 }
 

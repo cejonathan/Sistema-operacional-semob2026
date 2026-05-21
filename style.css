@@ -165,6 +165,94 @@ body {
     outline: none;
 }
 
+.registro-resumo {
+    background-color: var(--bg-panel);
+    border-bottom: 1px solid var(--border-color);
+    padding: 10px 12px;
+    flex-shrink: 0;
+}
+
+.registro-filtros {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+    margin-bottom: 10px;
+}
+
+.registro-grid-resumo {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+}
+
+.registro-grid-resumo div {
+    min-width: 0;
+    background: var(--bg-input);
+    border-radius: 8px;
+    padding: 8px;
+}
+
+.registro-grid-resumo span {
+    display: block;
+    color: var(--text-secondary);
+    font-size: 11px;
+    margin-bottom: 3px;
+}
+
+.registro-grid-resumo strong {
+    display: block;
+    color: var(--text-primary);
+    font-size: 13px;
+    line-height: 1.2;
+    overflow-wrap: anywhere;
+}
+
+.registro-alerta {
+    margin-top: 8px;
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.35;
+}
+
+.registro-preview-mes {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: 240px;
+    overflow-y: auto;
+    margin-top: 8px;
+    padding: 8px;
+    border-radius: 8px;
+    background: rgba(255,255,255,0.04);
+}
+
+.registro-preview-dia {
+    display: grid;
+    grid-template-columns: 1fr 140px;
+    gap: 8px;
+    align-items: center;
+}
+
+.registro-preview-dia span {
+    color: var(--text-primary);
+    font-size: 13px;
+}
+
+.registro-preview-dia select {
+    width: 100%;
+    padding: 8px;
+    border-radius: 8px;
+    font-size: 13px;
+}
+
+.registro-data-edicao {
+    padding: 12px;
+    border-radius: 8px;
+    background: var(--bg-input);
+    color: var(--text-primary);
+    font-size: 15px;
+}
+
 .filter-chips {
     display: flex;
     gap: 8px;
@@ -235,6 +323,70 @@ body {
     min-width: min(280px, 100%);
 }
 
+#container-msgs-registro-horarios {
+    padding: 10px;
+    gap: 0;
+}
+
+.registro-tabela-wrap {
+    width: 100%;
+    overflow-x: auto;
+    border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.08);
+    background-color: rgba(32, 44, 51, 0.92);
+}
+
+.registro-tabela {
+    width: 100%;
+    min-width: 640px;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+
+.registro-tabela th,
+.registro-tabela td {
+    padding: 9px 8px;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+    text-align: left;
+    vertical-align: middle;
+    white-space: nowrap;
+}
+
+.registro-tabela th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background-color: var(--bg-input);
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-weight: 700;
+}
+
+.registro-tabela tbody tr:nth-child(even) {
+    background-color: rgba(255,255,255,0.025);
+}
+
+.registro-tabela tbody tr:active {
+    background-color: rgba(0, 168, 132, 0.12);
+}
+
+.registro-tabela .registro-obs {
+    max-width: 180px;
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+
+.registro-acoes {
+    display: flex;
+    gap: 6px;
+}
+
+.registro-acoes .btn-action {
+    flex: none;
+    padding: 5px 8px;
+    font-size: 11px;
+}
+
 /* --- FORMULÁRIO INFERIOR --- */
 .chat-input-area {
     background-color: var(--bg-panel); padding: 10px;
@@ -278,15 +430,45 @@ body {
     background-color: rgba(255,255,255,0.08);
 }
 
-select, input[type="text"], input[type="number"], input[type="time"] {
+select, input[type="text"], input[type="number"], input[type="time"], input[type="month"] {
     flex: 1; padding: 12px; border-radius: 20px; border: none;
     background-color: var(--bg-input); color: var(--text-primary);
     font-size: 15px; outline: none;
 }
 
-select:focus, input:focus {
+textarea {
+    width: 100%;
+    padding: 12px;
+    border-radius: 14px;
+    border: none;
+    background-color: var(--bg-input);
+    color: var(--text-primary);
+    font-size: 15px;
+    font-family: inherit;
+    outline: none;
+    resize: vertical;
+}
+
+select:focus, input:focus, textarea:focus {
     outline: 2px solid var(--green-accent);
     outline-offset: 1px;
+}
+
+.registro-field {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+@media (max-width: 420px) {
+    .registro-grid-resumo {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .registro-filtros {
+        grid-template-columns: 1fr;
+    }
 }
 
 .send-btn {

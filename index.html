@@ -90,6 +90,10 @@
                     <div class="avatar">📋</div>
                     <div class="chat-info"><h3>RELATÓRIOS</h3><p>Toque para registrar um relatório</p></div>
                 </div>
+                <div class="chat-item" id="btn-entrar-registro-horarios">
+                    <div class="avatar">⏱️</div>
+                    <div class="chat-info"><h3>REGISTRO DE HORÁRIOS</h3><p>Controle horas, ganhos e imposto estimado</p></div>
+                </div>
             </div>
         </div>
 
@@ -372,6 +376,42 @@
                 </div>
                 <div class="input-group">
                     <button class="btn-toggle-form" onclick="toggleMenuRelatorio()" style="width:100%;">＋ NOVO RELATÓRIO</button>
+                </div>
+            </footer>
+        </div>
+
+        <!-- ==================== TELA REGISTRO DE HORÁRIOS ==================== -->
+        <div id="tela-conversa-registro-horarios" class="screen hidden">
+            <header class="chat-header">
+                <button class="back-btn" onclick="voltarParaInicio()">
+                <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+                </button>
+                <div class="avatar small">⏱️</div>
+                <h2>REGISTRO DE HORÁRIOS</h2>
+            </header>
+            <div class="registro-resumo">
+                <div class="registro-filtros">
+                    <label for="reg-mes" class="sr-only">Mês</label>
+                    <select id="reg-mes"></select>
+                </div>
+                <div class="registro-grid-resumo">
+                    <div><span>Horas normais</span><strong id="reg-resumo-horas-normais">00:00<br>R$ 0,00</strong></div>
+                    <div><span>Extras 50%</span><strong id="reg-resumo-extras-50">00:00<br>R$ 0,00</strong></div>
+                    <div><span>Extras 100%</span><strong id="reg-resumo-extras-100">00:00<br>R$ 0,00</strong></div>
+                    <div><span>Adicional noturno</span><strong id="reg-resumo-extras-25">00:00<br>R$ 0,00</strong></div>
+                    <div><span>Bruto / Líquido</span><strong id="reg-resumo-bruto-liquido">R$ 0,00<br>R$ 0,00</strong></div>
+                    <div><span>IPMJ / IR</span><strong id="reg-resumo-descontos">R$ 0,00<br>R$ 0,00</strong></div>
+                    <div><span>Horas sem IR</span><strong id="reg-resumo-horas-livres">00:00</strong></div>
+                </div>
+                <div class="registro-alerta" id="reg-resumo-alerta">Configure a folha e lance os horários do mês.</div>
+            </div>
+            <div class="messages-container" id="container-msgs-registro-horarios"></div>
+            <div id="erro-registro-horarios" class="erro-inline hidden"></div>
+            <footer class="chat-input-area">
+                <div class="input-group">
+                    <button id="btn-reg-config" class="btn-toggle-form" onclick="abrirConfigRegistroHorarios()">CONFIGURAR FOLHA</button>
+                    <button id="btn-reg-novo" class="btn-toggle-form" onclick="abrirFormRegistroHorarios()">+ HORÁRIO</button>
+                    <button id="btn-reg-pdf" class="btn-toggle-form" onclick="gerarPDFRegistroHorarios()">PDF</button>
                 </div>
             </footer>
         </div>
@@ -709,6 +749,68 @@
             </div>
         </div>
 
+        <!-- ==================== MODAIS REGISTRO DE HORÁRIOS ==================== -->
+        <div id="modal-registro-horario" class="modal-overlay hidden">
+            <div class="modal-card">
+                <h3 id="reg-modal-titulo">Novo Horário</h3>
+                <div id="erro-modal-registro-horario" class="erro-inline hidden"></div>
+                <div class="modal-body">
+                    <input type="hidden" id="reg-edit-id">
+                    <input type="hidden" id="reg-data-edicao">
+                    <div id="reg-row-mes">
+                        <label for="reg-data-mes">Mês:</label>
+                        <select id="reg-data-mes"></select>
+                    </div>
+                    <div id="reg-row-data-edicao" class="hidden">
+                        <label>Data:</label>
+                        <div id="reg-data-edicao-label" class="registro-data-edicao">--/--/----</div>
+                    </div>
+                    <div id="reg-row-horario-especifico" class="input-group">
+                        <div class="registro-field">
+                            <label for="reg-entrada">Entrada:</label>
+                            <input type="time" id="reg-entrada">
+                        </div>
+                        <div class="registro-field">
+                            <label for="reg-saida">Saída:</label>
+                            <input type="time" id="reg-saida">
+                        </div>
+                    </div>
+                    <label for="reg-intervalo">Intervalo em minutos:</label>
+                    <input type="number" id="reg-intervalo" min="0" step="5" inputmode="numeric">
+                    <div id="reg-preview-mes" class="registro-preview-mes"></div>
+                    <div id="reg-row-observacao" class="hidden">
+                        <label for="reg-observacao">Observação:</label>
+                        <textarea id="reg-observacao" rows="2" placeholder="Opcional"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn-cancelar" onclick="fecharModalRegistroHorarios()">Cancelar</button>
+                    <button class="btn-salvar" onclick="salvarRegistroHorarios()">Salvar</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="modal-registro-config" class="modal-overlay hidden">
+            <div class="modal-card">
+                <h3>Configuração da Folha</h3>
+                <div id="erro-modal-registro-config" class="erro-inline hidden"></div>
+                <div class="modal-body">
+                    <label for="reg-conf-salario">Salário base:</label>
+                    <input type="number" id="reg-conf-salario" min="0" step="0.01" inputmode="decimal">
+                    <label for="reg-conf-periculosidade">Periculosidade:</label>
+                    <input type="number" id="reg-conf-periculosidade" min="0" step="0.01" inputmode="decimal">
+                    <label for="reg-conf-tempo-servico">Adicional por tempo de serviço:</label>
+                    <input type="number" id="reg-conf-tempo-servico" min="0" step="0.01" inputmode="decimal">
+                    <label for="reg-conf-ipmj">IPMJ (%):</label>
+                    <input type="number" id="reg-conf-ipmj" min="0" step="0.01" inputmode="decimal">
+                </div>
+                <div class="modal-footer">
+                    <button class="btn-cancelar" onclick="fecharModalRegistroConfig()">Cancelar</button>
+                    <button class="btn-salvar" onclick="salvarConfigRegistroHorarios()">Salvar</button>
+                </div>
+            </div>
+        </div>
+
     </div><!-- /app-container -->
 
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -718,5 +820,6 @@
     <script src="viatura.js"></script>
     <script src="ocorrencia.js"></script>
     <script src="relatorio.js"></script>
+    <script src="registro-horarios.js"></script>
 </body>
 </html>
