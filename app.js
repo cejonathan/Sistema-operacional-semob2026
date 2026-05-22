@@ -84,6 +84,29 @@ function selecionarAgenteNoSelect(selectElement, agente) {
     }
 }
 
+function definirValorSelect(selectElement, valor) {
+    if (!selectElement) return;
+    const valorLimpo = String(valor || '').trim();
+    selectElement.value = '';
+    if (!valorLimpo) {
+        selectElement.dispatchEvent(new Event('change'));
+        return;
+    }
+
+    const opcaoExistente = Array.from(selectElement.options)
+        .find(opt => opt.value === valorLimpo);
+
+    if (!opcaoExistente) {
+        const option = document.createElement('option');
+        option.value = valorLimpo;
+        option.textContent = valorLimpo;
+        selectElement.appendChild(option);
+    }
+
+    selectElement.value = valorLimpo;
+    selectElement.dispatchEvent(new Event('change'));
+}
+
 function obterIdentificadoresAgenteLogado() {
     if (!agenteLogado?.det_codigo) return [];
     const nomeCompleto = String(agenteLogado.det_codigo).trim();
@@ -473,6 +496,13 @@ function obterDataLocal() {
     return `${ano}-${mes}-${dia}`;
 }
 
+function obterHoraLocal() {
+    const data = new Date();
+    const hora = String(data.getHours()).padStart(2, '0');
+    const minuto = String(data.getMinutes()).padStart(2, '0');
+    return `${hora}:${minuto}`;
+}
+
 function escapeHTML(valor) {
     return String(valor ?? '').replace(/[&<>"']/g, char => ({
         '&': '&amp;',
@@ -522,19 +552,24 @@ async function prepararCamposNovaOcorrencia() {
         if (s) s.disabled = false;
     });
 
-    ocSelectVtr.value = '';
-    ocSelectCondutor.value = '';
-    ocSelectApoio.value = '';
+    definirValorSelect(ocSelectVtr, '');
+    definirValorSelect(ocSelectCondutor, '');
+    definirValorSelect(ocSelectApoio, '');
     ocData.value = obterDataLocal();
-    const agora = new Date();
-    ocHora.value = agora.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    ocHora.value = obterHoraLocal();
 
     if (!agenteLogado || !agenteLogado.det_codigo) return;
+
+    const filtrosAgente = obterIdentificadoresAgenteLogado()
+        .flatMap(agente => [
+            `condutor.ilike.%${agente}%`,
+            `apoio.ilike.%${agente}%`
+        ]);
 
     const { data: kmsAbertos } = await db
         .from('registros_viatura')
         .select('prefixo_vtr, condutor, apoio')
-        .or(`condutor.ilike.%${agenteLogado.det_codigo}%,apoio.ilike.%${agenteLogado.det_codigo}%`)
+        .or(filtrosAgente.join(','))
         .eq('status', 'aberto')
         .order('id', { ascending: false })
         .limit(1);
@@ -542,24 +577,25 @@ async function prepararCamposNovaOcorrencia() {
     const kmAberto = Array.isArray(kmsAbertos) ? kmsAbertos[0] : null;
 
     if (kmAberto) {
-        ocSelectVtr.value    = kmAberto.prefixo_vtr;
+        definirValorSelect(ocSelectVtr, kmAberto.prefixo_vtr);
         ocSelectVtr.disabled = true;
 
         const agenteSendoCondutor = verificaVinculoAgente(agenteLogado.det_codigo, kmAberto.condutor, '');
         if (agenteSendoCondutor) {
-            ocSelectCondutor.value    = kmAberto.condutor || '';
+            definirValorSelect(ocSelectCondutor, kmAberto.condutor);
             ocSelectCondutor.disabled = true;
-            ocSelectApoio.value       = kmAberto.apoio || '';
+            definirValorSelect(ocSelectApoio, kmAberto.apoio);
             ocSelectApoio.disabled    = false;
         } else {
-            ocSelectCondutor.value    = kmAberto.condutor || '';
+            definirValorSelect(ocSelectCondutor, kmAberto.condutor);
             ocSelectCondutor.disabled = false;
-            ocSelectApoio.value       = kmAberto.apoio || '';
+            definirValorSelect(ocSelectApoio, kmAberto.apoio);
             ocSelectApoio.disabled    = true;
         }
     } else {
         ocSelectVtr.disabled = false;
         selecionarAgenteNoSelect(ocSelectCondutor, agenteLogado.det_codigo);
+        if (!ocSelectCondutor.value) definirValorSelect(ocSelectCondutor, agenteLogado.det_codigo);
         ocSelectCondutor.disabled = true;
         ocSelectApoio.disabled = false;
     }
@@ -606,9 +642,8 @@ btnEntrarViatura.addEventListener('click', () => {
     ocultarTodasTelas();
     telaViatura.classList.remove('hidden');
     carregarHistoricoViatura();
-    const agora = new Date();
     document.getElementById('vtr-data-inicial').value = obterDataLocal();
-    vtrHoraInicial.value = agora.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    vtrHoraInicial.value = obterHoraLocal();
     if (agenteLogado) {
         if (agenteLogado.pref_vtr) vtrSelectVtr.value = agenteLogado.pref_vtr;
         if (agenteLogado.pref_funcao) {

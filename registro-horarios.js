@@ -10,6 +10,7 @@ const REG_TURNOS = {
     folga: { label: 'Folga' },
     abonada: { label: 'Abonada' },
     atestado: { label: 'Atestado' },
+    feriado: { label: 'Feriado' },
     manha: { label: 'Manha' },
     diurno: { label: 'Diurno' },
     tarde_noite: { label: 'Tarde/Noite' },
@@ -19,10 +20,12 @@ const REG_TURNOS = {
 const REG_CONFIG_PADRAO = {
     salario_base: 3109.22,
     periculosidade: 932.77,
-    adicional_tempo_servico: 0,
+    plano_carreira: 0,
+    anuenio: 0,
     ipmj_percentual: 14,
     dependentes: 0,
     pensao: 0,
+    outros_descontos: 0,
     dias_previstos: 22
 };
 
@@ -148,7 +151,7 @@ function regAtualizarCamposFormulario() {
     regEl('reg-row-horario-especifico')?.classList.remove('hidden');
     if (!regEl('reg-entrada').value) regEl('reg-entrada').value = '06:00';
     if (!regEl('reg-saida').value) regEl('reg-saida').value = '15:00';
-    regEl('reg-intervalo').value = 60;
+    if (!regEl('reg-intervalo').value) regEl('reg-intervalo').value = 60;
     regEl('reg-row-observacao')?.classList.toggle('hidden', !editando);
     regRenderizarPreviewMes();
 }
@@ -204,6 +207,7 @@ function regRenderizarPreviewMes() {
                 <option value="folga"${regStatusPadraoData(data) === 'folga' ? ' selected' : ''}>Folga</option>
                 <option value="abonada">Abonada</option>
                 <option value="atestado">Atestado</option>
+                <option value="feriado">Feriado</option>
             </select>
         </label>
     `).join('');
@@ -223,12 +227,10 @@ function regStatusPorData() {
 }
 
 function regCalcularIpmj(bruto, config) {
-    const remuneracaoIpmj = Number(config.salario_base || 0) + Number(config.adicional_tempo_servico || 0);
-    const remuneracaoTotal = Number(config.salario_base || 0)
-        + Number(config.periculosidade || 0)
-        + Number(config.adicional_tempo_servico || 0);
+    const baseIpmj = regBaseIpmj(config);
+    const remuneracaoTotal = regRemuneracaoTributavel(config);
     const proporcao = remuneracaoTotal > 0 ? Math.min(1, bruto / remuneracaoTotal) : 0;
-    return remuneracaoIpmj * proporcao * (Number(config.ipmj_percentual || 0) / 100);
+    return baseIpmj * proporcao * (Number(config.ipmj_percentual || 0) / 100);
 }
 
 function regIrrfTabela(base) {
@@ -265,50 +267,73 @@ function regCalcularImposto(bruto, config) {
         irTabela,
         reducao,
         ir,
-        liquido: bruto - ipmj - ir,
+        outrosDescontos: Number(config.outros_descontos || 0),
+        liquido: bruto - ipmj - ir - Number(config.outros_descontos || 0),
         deducaoUsada,
         usaSimplificado: REG_DESCONTO_SIMPLIFICADO > deducoesLegais
     };
 }
 
 function regConfigNormalizada(config = regConfig) {
-    return Object.assign({}, REG_CONFIG_PADRAO, config);
+    const normalizada = Object.assign({}, REG_CONFIG_PADRAO, config);
+    if (
+        (config.anuenio === undefined || config.anuenio === null || config.anuenio === '')
+        && config.adicional_tempo_servico !== undefined
+    ) {
+        normalizada.anuenio = Number(config.adicional_tempo_servico || 0);
+    }
+    normalizada.salario_base = Number(normalizada.salario_base || 0);
+    normalizada.periculosidade = Number(normalizada.periculosidade || 0);
+    normalizada.plano_carreira = Number(normalizada.plano_carreira || 0);
+    normalizada.anuenio = Number(normalizada.anuenio || 0);
+    normalizada.ipmj_percentual = Number(normalizada.ipmj_percentual || 0);
+    normalizada.dependentes = Number(normalizada.dependentes || 0);
+    normalizada.pensao = Number(normalizada.pensao || 0);
+    normalizada.outros_descontos = Number(normalizada.outros_descontos || 0);
+    normalizada.adicional_tempo_servico = normalizada.anuenio;
+    return normalizada;
 }
 
 function regHorasPrevistas(config = regConfig) {
+    const diasPrevistos = Number(config.dias_previstos || 0);
+    if (diasPrevistos > 0) return diasPrevistos * 8;
+
     const mes = regEl('reg-mes')?.value || regMesAtual();
     const diasTrabalho = regHistorico.filter(item =>
         String(item.data || '').startsWith(mes)
-        && item.agente === regAgentePadrao()
-        && !['folga', 'abonada', 'atestado'].includes(item.equipe)
+        && !regRegistroAusente(item)
     ).length;
     const diasBase = diasTrabalho || regDatasDoMes(mes).filter(data => regStatusPadraoData(data) === 'trabalho').length;
     return Math.max(0, diasBase * 8);
 }
 
-function regRemuneracaoMensal(config = regConfig) {
+function regBaseIpmj(config = regConfig) {
     return Number(config.salario_base || 0)
-        + Number(config.periculosidade || 0)
-        + Number(config.adicional_tempo_servico || 0);
+        + Number(config.plano_carreira || 0)
+        + Number(config.anuenio || 0);
+}
+
+function regRemuneracaoTributavel(config = regConfig) {
+    return regBaseIpmj(config) + Number(config.periculosidade || 0);
+}
+
+function regRemuneracaoMensal(config = regConfig) {
+    return regRemuneracaoTributavel(config);
 }
 
 function regValorHora(config = regConfig) {
-    const horasPrevistas = regHorasPrevistas(config);
-    return horasPrevistas > 0 ? regRemuneracaoMensal(config) / horasPrevistas : 0;
+    return regBaseIpmj(config) / 150;
 }
 
 function regValorHoraSalarioBase(config = regConfig) {
-    const horasPrevistas = regHorasPrevistas(config);
-    return horasPrevistas > 0 ? Number(config.salario_base || 0) / horasPrevistas : 0;
+    return regValorHora(config);
 }
 
 function regFiltrarHistorico() {
     const mes = regEl('reg-mes')?.value || regMesAtual();
-    const agenteFiltro = regAgentePadrao();
     return regHistorico.filter(item => {
         const mesmoMes = String(item.data || '').startsWith(mes);
-        const mesmoAgente = !agenteFiltro || item.agente === agenteFiltro;
-        return mesmoMes && mesmoAgente;
+        return mesmoMes;
     });
 }
 
@@ -317,7 +342,30 @@ function regEhFimDeSemana(data) {
     return diaSemana === 0 || diaSemana === 6;
 }
 
-function regCalcularCategoriasHoras(registros, valorHora) {
+function regDiaSemana(data) {
+    return new Date(`${data}T00:00:00`).getDay();
+}
+
+function regDataISOOffset(data, offsetDias) {
+    const dt = new Date(`${data}T00:00:00`);
+    dt.setDate(dt.getDate() + offsetDias);
+    return dt.toISOString().slice(0, 10);
+}
+
+function regEhFeriado(item) {
+    return item.equipe === 'feriado' || String(item.observacao || '').toLowerCase().includes('feriado');
+}
+
+function regSabadoTeveFolgaSemanaAnterior(data, registros) {
+    for (let offset = -5; offset <= -1; offset += 1) {
+        const dataSemana = regDataISOOffset(data, offset);
+        if (registros.some(item => item.data === dataSemana && item.equipe === 'folga')) return true;
+    }
+    return false;
+}
+
+function regCalcularCategoriasHoras(registros, valorHora, registrosContexto = registros) {
+    const registrosMes = registrosContexto.slice();
     return registros.reduce((totais, item) => {
         const horas = Number(item.horas_liquidas || 0);
         if (horas <= 0) return totais;
@@ -325,10 +373,18 @@ function regCalcularCategoriasHoras(registros, valorHora) {
         totais.extras25Horas += horasNoturnas;
         totais.extras25Valor += horasNoturnas * valorHora * 0.25;
 
-        if (regEhFimDeSemana(item.data)) {
+        const diaSemana = regDiaSemana(item.data);
+        if (diaSemana === 0 || regEhFeriado(item)) {
             totais.extras100Dias += 1;
             totais.extras100Horas += horas;
             totais.extras100Valor += horas * valorHora * 2;
+            return totais;
+        }
+
+        if (diaSemana === 6 && !regSabadoTeveFolgaSemanaAnterior(item.data, registrosMes)) {
+            totais.extras50Dias += 1;
+            totais.extras50Horas += horas;
+            totais.extras50Valor += horas * valorHora * 1.5;
             return totais;
         }
 
@@ -394,56 +450,33 @@ function regResumo() {
     const registros = regFiltrarHistorico();
     const valorHora = regValorHoraSalarioBase();
     const categorias = regCalcularCategoriasHoras(registros, valorHora);
-    const horasLancadas = categorias.normaisHoras + categorias.extras25Horas + categorias.extras50Horas + categorias.extras100Horas;
-    const ganhoLancado = categorias.normaisValor + categorias.extras25Valor + categorias.extras50Valor + categorias.extras100Valor;
-    const horasPrevistas = regHorasPrevistas();
-    const brutoProjetado = horasPrevistas > 0
-        ? Math.max(ganhoLancado, regRemuneracaoMensal() * Math.min(1, horasLancadas / horasPrevistas))
-        : ganhoLancado;
+    const normaisValorFixo = regBaseIpmj();
+    const extrasLancadas = categorias.extras25Valor + categorias.extras50Valor + categorias.extras100Valor;
+    const ganhoLancado = regRemuneracaoTributavel() + extrasLancadas;
     const impostoLancado = regCalcularImposto(ganhoLancado, regConfig);
-    const impostoProjetado = regCalcularImposto(regRemuneracaoMensal(), regConfig);
-
-    let horasSemIr = 0;
-    for (let h = horasLancadas; h <= Math.max(horasLancadas, horasPrevistas + 80); h += 0.25) {
-        const brutoTeste = h * valorHora;
-        if (regCalcularImposto(brutoTeste, regConfig).ir <= 0.009) horasSemIr = Math.max(0, h - horasLancadas);
-        else break;
-    }
 
     return {
         registros,
         valorHora,
-        horasLancadas,
         ganhoLancado,
+        normaisValorFixo,
         categorias,
-        brutoProjetado,
-        impostoLancado,
-        impostoProjetado,
-        horasSemIr
+        impostoLancado
     };
 }
 
 function regAtualizarResumo() {
     const resumo = regResumo();
-    regEl('reg-resumo-horas-normais').innerHTML = regResumoDiasHorasValor(resumo.categorias.normaisDias, resumo.categorias.normaisHoras, resumo.categorias.normaisValor);
+    regEl('reg-resumo-horas-normais').innerHTML = regResumoDiasHorasValor(resumo.categorias.normaisDias, resumo.categorias.normaisHoras, resumo.normaisValorFixo);
     regEl('reg-resumo-extras-25').innerHTML = regResumoHorasValor(resumo.categorias.extras25Horas, resumo.categorias.extras25Valor);
     regEl('reg-resumo-extras-50').innerHTML = regResumoDiasHorasValor(resumo.categorias.extras50Dias, resumo.categorias.extras50Horas, resumo.categorias.extras50Valor);
     regEl('reg-resumo-extras-100').innerHTML = regResumoDiasHorasValor(resumo.categorias.extras100Dias, resumo.categorias.extras100Horas, resumo.categorias.extras100Valor);
     regEl('reg-resumo-bruto-liquido').innerHTML = `${regMoeda(resumo.ganhoLancado)}<br>${regMoeda(resumo.impostoLancado.liquido)}`;
-    regEl('reg-resumo-descontos').innerHTML = `${regMoeda(resumo.impostoLancado.ipmj)}<br>${regMoeda(resumo.impostoLancado.ir)}`;
-    regEl('reg-resumo-horas-livres').textContent = regHoras(resumo.horasSemIr);
-
-    const alerta = regEl('reg-resumo-alerta');
-    if (!alerta) return;
-    const deducao = resumo.impostoLancado.usaSimplificado ? 'desconto simplificado' : 'deduções legais';
-    const maisOito = regCalcularImposto(resumo.ganhoLancado + (8 * resumo.valorHora), regConfig);
-    const descontoExtra = (maisOito.ipmj + maisOito.ir) - (resumo.impostoLancado.ipmj + resumo.impostoLancado.ir);
-    const liquidoExtra = (8 * resumo.valorHora) - descontoExtra;
-    alerta.textContent = `Valor/hora ${regMoeda(resumo.valorHora)}. Projecao do mes completo: bruto ${regMoeda(regRemuneracaoMensal())}, IR ${regMoeda(resumo.impostoProjetado.ir)}. Mais 8h renderiam liquido estimado de ${regMoeda(liquidoExtra)}. Calculo usando ${deducao}.`;
+    regEl('reg-resumo-descontos').innerHTML = `${regMoeda(resumo.impostoLancado.ipmj)}<br>${regMoeda(resumo.impostoLancado.ir)}<br>${regMoeda(resumo.impostoLancado.outrosDescontos)}`;
 }
 
 function regHtmlLinhaTabela(item) {
-    const valorDia = regCalcularCategoriasHoras([item], regValorHoraSalarioBase());
+    const valorDia = regCalcularCategoriasHoras([item], regValorHoraSalarioBase(), regFiltrarHistorico());
     const valorTotalDia = valorDia.normaisValor + valorDia.extras25Valor + valorDia.extras50Valor + valorDia.extras100Valor;
     const dataFmt = regPeriodoLabel(item);
     const id = regEscape(item.id);
@@ -522,8 +555,10 @@ async function regCarregarConfig() {
 
 async function regCarregarHistorico() {
     const mes = regEl('reg-mes')?.value || regMesAtual();
+    const [ano, mesNumero] = String(mes).split('-').map(Number);
     const inicio = `${mes}-01`;
-    const fim = `${mes}-31`;
+    const ultimoDia = new Date(ano, mesNumero, 0).getDate();
+    const fim = `${mes}-${String(ultimoDia).padStart(2, '0')}`;
     regHistorico = regLerLocal('historico', []);
 
     if (!agenteLogado?.user_id) {
@@ -578,8 +613,12 @@ window.abrirConfigRegistroHorarios = function () {
     const config = regConfigNormalizada();
     regEl('reg-conf-salario').value = config.salario_base;
     regEl('reg-conf-periculosidade').value = config.periculosidade;
-    regEl('reg-conf-tempo-servico').value = config.adicional_tempo_servico;
+    regEl('reg-conf-plano-carreira').value = config.plano_carreira;
+    regEl('reg-conf-anuenio').value = config.anuenio;
     regEl('reg-conf-ipmj').value = config.ipmj_percentual;
+    regEl('reg-conf-dependentes').value = config.dependentes;
+    regEl('reg-conf-pensao').value = config.pensao;
+    regEl('reg-conf-outros-descontos').value = config.outros_descontos;
     regEl('modal-registro-config').classList.remove('hidden');
 };
 
@@ -591,10 +630,12 @@ window.salvarConfigRegistroHorarios = async function () {
     const dados = regConfigNormalizada({
         salario_base: regNumero('reg-conf-salario'),
         periculosidade: regNumero('reg-conf-periculosidade'),
-        adicional_tempo_servico: regNumero('reg-conf-tempo-servico'),
+        plano_carreira: regNumero('reg-conf-plano-carreira'),
+        anuenio: regNumero('reg-conf-anuenio'),
         ipmj_percentual: regNumero('reg-conf-ipmj'),
-        dependentes: Number(regConfig.dependentes || 0),
-        pensao: Number(regConfig.pensao || 0),
+        dependentes: regNumero('reg-conf-dependentes'),
+        pensao: regNumero('reg-conf-pensao'),
+        outros_descontos: regNumero('reg-conf-outros-descontos'),
         dias_previstos: Number(regConfig.dias_previstos || REG_CONFIG_PADRAO.dias_previstos),
         criado_por: agenteLogado?.user_id || null,
         agente: regAgentePadrao()
@@ -626,7 +667,7 @@ window.salvarRegistroHorarios = async function () {
     const tipoHorario = 'mensal';
     const entrada = regEl('reg-entrada').value;
     const saida = regEl('reg-saida').value;
-    const intervalo = 60;
+    const intervalo = regNumero('reg-intervalo');
     const idEdicao = regEl('reg-edit-id').value;
     const mesSelecionado = tipoData === 'mes'
         ? (regEl('reg-data-mes').value || regEl('reg-mes').value || regMesAtual())
@@ -637,8 +678,17 @@ window.salvarRegistroHorarios = async function () {
         await regCarregarHistorico();
     }
 
+    const registroEditado = idEdicao
+        ? regHistorico.find(item => String(item.id) === String(idEdicao))
+            || regLerLocal('historico', []).find(item => String(item.id) === String(idEdicao))
+        : null;
+    const editandoAusencia = registroEditado && regRegistroAusente(registroEditado);
+    const horarioInformadoNaAusencia = editandoAusencia && entrada && saida && (entrada !== '00:00' || saida !== '00:00');
+    const statusEdicao = horarioInformadoNaAusencia
+        ? 'trabalho'
+        : (registroEditado && REG_TURNOS[registroEditado.equipe] ? registroEditado.equipe : 'trabalho');
     const diasSelecionados = idEdicao
-        ? [{ data: regEl('reg-data-edicao')?.value || regHojeISO(), status: 'trabalho' }]
+        ? [{ data: regEl('reg-data-edicao')?.value || regHojeISO(), status: statusEdicao }]
         : regStatusPorData();
 
     if (!agente || !diasSelecionados.length || !entrada || !saida) {
@@ -646,21 +696,23 @@ window.salvarRegistroHorarios = async function () {
         return;
     }
 
-    const diasNovos = diasSelecionados.filter(dia => !regDataJaExiste(dia.data, idEdicao));
-    const datasPuladas = diasSelecionados.length - diasNovos.length;
-    if (!diasNovos.length) {
+    const diasParaSalvar = idEdicao
+        ? diasSelecionados
+        : diasSelecionados.filter(dia => !regDataJaExiste(dia.data));
+    const datasPuladas = idEdicao ? 0 : diasSelecionados.length - diasParaSalvar.length;
+    if (!diasParaSalvar.length) {
         mostrarNotificacao('erro-modal-registro-horario', 'Todas as datas selecionadas ja foram lancadas.');
         return;
     }
 
     const criarDados = ({ data, status }) => {
-        const ausente = status !== 'trabalho';
+        const ausente = ['folga', 'abonada', 'atestado'].includes(status);
         const labelStatus = status === 'trabalho' ? '' : (REG_TURNOS[status]?.label || status);
         const observacaoEditada = idEdicao ? regEl('reg-observacao').value.trim() : '';
         return {
         agente,
         data,
-        equipe: ausente ? status : tipoHorario,
+        equipe: status === 'trabalho' ? tipoHorario : status,
         entrada: ausente ? '00:00' : entrada,
         saida: ausente ? '00:00' : saida,
         intervalo_minutos: intervalo,
@@ -670,7 +722,7 @@ window.salvarRegistroHorarios = async function () {
         };
     };
 
-    const registros = diasNovos.map(criarDados);
+    const registros = diasParaSalvar.map(criarDados);
     if (idEdicao) registros[0].id = idEdicao;
 
     try {
@@ -679,7 +731,7 @@ window.salvarRegistroHorarios = async function () {
                 const { error } = await db.from(REG_HORARIOS_TABLE).update(registros[0]).eq('id', idEdicao);
                 if (error) throw error;
             } else {
-                const { error } = await db.from(REG_HORARIOS_TABLE).insert(registros).select();
+                const { error } = await db.from(REG_HORARIOS_TABLE).insert(registros);
                 if (error) throw error;
             }
             regUsandoLocalStorage = false;
@@ -720,7 +772,7 @@ window.editarRegistroHorarios = function (id) {
     regPopularSelectMes('reg-data-mes', String(item.data || regHojeISO()).slice(0, 7));
     regEl('reg-entrada').value = item.entrada || '';
     regEl('reg-saida').value = item.saida || '';
-    regEl('reg-intervalo').value = 60;
+    regEl('reg-intervalo').value = Number(item.intervalo_minutos ?? 60);
     regEl('reg-observacao').value = item.observacao || '';
     regAtualizarCamposFormulario();
     regEl('modal-registro-horario').classList.remove('hidden');
@@ -840,12 +892,12 @@ window.gerarPDFRegistroHorarios = async function () {
         posY += 8;
 
         const cards = [
-            ['Horas normais', `${resumo.categorias.normaisDias} dias`, regHoras(resumo.categorias.normaisHoras), regMoeda(resumo.categorias.normaisValor)],
+            ['Horas normais', `${resumo.categorias.normaisDias} dias`, regHoras(resumo.categorias.normaisHoras), regMoeda(resumo.normaisValorFixo)],
             ['Extras 50%', `${resumo.categorias.extras50Dias} dias`, regHoras(resumo.categorias.extras50Horas), regMoeda(resumo.categorias.extras50Valor)],
             ['Extras 100%', `${resumo.categorias.extras100Dias} dias`, regHoras(resumo.categorias.extras100Horas), regMoeda(resumo.categorias.extras100Valor)],
             ['Adic. noturno', '', regHoras(resumo.categorias.extras25Horas), regMoeda(resumo.categorias.extras25Valor)],
             ['Bruto/Liquido', '', regMoeda(resumo.ganhoLancado), regMoeda(resumo.impostoLancado.liquido)],
-            ['IPMJ/IR', '', regMoeda(resumo.impostoLancado.ipmj), regMoeda(resumo.impostoLancado.ir)]
+            ['IPMJ/IR/Desc.', '', regMoeda(resumo.impostoLancado.ipmj), `${regMoeda(resumo.impostoLancado.ir)} / ${regMoeda(resumo.impostoLancado.outrosDescontos)}`]
         ];
         const cardW = larguraUtil / 3;
         cards.forEach((card, index) => {

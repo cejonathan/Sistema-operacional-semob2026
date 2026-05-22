@@ -400,10 +400,8 @@
                     <div><span>Extras 100%</span><strong id="reg-resumo-extras-100">00:00<br>R$ 0,00</strong></div>
                     <div><span>Adicional noturno</span><strong id="reg-resumo-extras-25">00:00<br>R$ 0,00</strong></div>
                     <div><span>Bruto / Líquido</span><strong id="reg-resumo-bruto-liquido">R$ 0,00<br>R$ 0,00</strong></div>
-                    <div><span>IPMJ / IR</span><strong id="reg-resumo-descontos">R$ 0,00<br>R$ 0,00</strong></div>
-                    <div><span>Horas sem IR</span><strong id="reg-resumo-horas-livres">00:00</strong></div>
+                    <div><span>IPMJ / IR / Desc.</span><strong id="reg-resumo-descontos">R$ 0,00<br>R$ 0,00<br>R$ 0,00</strong></div>
                 </div>
-                <div class="registro-alerta" id="reg-resumo-alerta">Configure a folha e lance os horários do mês.</div>
             </div>
             <div class="messages-container" id="container-msgs-registro-horarios"></div>
             <div id="erro-registro-horarios" class="erro-inline hidden"></div>
@@ -799,10 +797,18 @@
                     <input type="number" id="reg-conf-salario" min="0" step="0.01" inputmode="decimal">
                     <label for="reg-conf-periculosidade">Periculosidade:</label>
                     <input type="number" id="reg-conf-periculosidade" min="0" step="0.01" inputmode="decimal">
-                    <label for="reg-conf-tempo-servico">Adicional por tempo de serviço:</label>
-                    <input type="number" id="reg-conf-tempo-servico" min="0" step="0.01" inputmode="decimal">
+                    <label for="reg-conf-plano-carreira">Plano de carreira:</label>
+                    <input type="number" id="reg-conf-plano-carreira" min="0" step="0.01" inputmode="decimal">
+                    <label for="reg-conf-anuenio">Anuênio:</label>
+                    <input type="number" id="reg-conf-anuenio" min="0" step="0.01" inputmode="decimal">
                     <label for="reg-conf-ipmj">IPMJ (%):</label>
                     <input type="number" id="reg-conf-ipmj" min="0" step="0.01" inputmode="decimal">
+                    <label for="reg-conf-dependentes">Dependentes:</label>
+                    <input type="number" id="reg-conf-dependentes" min="0" step="1" inputmode="numeric">
+                    <label for="reg-conf-pensao">Pensão alimentícia (deduz IR):</label>
+                    <input type="number" id="reg-conf-pensao" min="0" step="0.01" inputmode="decimal">
+                    <label for="reg-conf-outros-descontos">Outros descontos em folha (não deduz IR):</label>
+                    <input type="number" id="reg-conf-outros-descontos" min="0" step="0.01" inputmode="decimal">
                 </div>
                 <div class="modal-footer">
                     <button class="btn-cancelar" onclick="fecharModalRegistroConfig()">Cancelar</button>
